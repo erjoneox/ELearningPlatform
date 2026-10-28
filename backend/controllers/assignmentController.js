@@ -3,6 +3,7 @@ const {
   createAssignment,
   getAssignmentById,
   getSubmissionsByAssignment,
+  getSubmissionById,
   submitAssignment,
   gradeSubmission,
   getSubmissionsByStudent,
@@ -108,10 +109,11 @@ async function addAssignment(req, res) {
       typeof title !== "string" ||
       !title.trim() ||
       !Number.isInteger(maxPoints) ||
-      maxPoints <= 0
+      maxPoints <= 0 ||
+      maxPoints > 100
     ) {
       return res.status(400).json({
-        message: "Valid course ID, title and positive maxPoints are required.",
+        message: "Valid course ID, title and maxPoints from 1 to 100 are required.",
       });
     }
 
@@ -298,6 +300,74 @@ async function submitWork(req, res) {
   }
 }
 
+async function downloadSubmission(req, res) {
+  try {
+    const submissionId = Number(req.params.submissionId);
+
+    if (!Number.isInteger(submissionId) || submissionId <= 0) {
+      return res.status(400).json({
+        message: "Invalid submission ID.",
+      });
+    }
+
+    const submission = await getSubmissionById(submissionId);
+
+    if (!submission) {
+      return res.status(404).json({
+        message: "Submission not found.",
+      });
+    }
+
+    const isOwner =
+      req.user.role === "Student" &&
+      Number(submission.StudentID) === Number(req.user.userId);
+
+    if (!isOwner) {
+      const course = await getCourseById(submission.CourseID);
+
+      if (!course || !canManageCourse(course, req.user)) {
+        return res.status(403).json({
+          message: "You cannot access this submission.",
+        });
+      }
+    }
+
+    const filename = path.posix.basename(submission.FileURL || "");
+
+    if (!filename || filename === "." || filename === "/") {
+      return res.status(404).json({
+        message: "Submission file not found.",
+      });
+    }
+
+    const filePath = path.join(__dirname, "../uploads/submissions", filename);
+
+    return res.download(filePath, filename, (error) => {
+      if (error) {
+        if (error.code === "ENOENT") {
+          return res.status(404).json({
+            message: "Submission file not found.",
+          });
+        }
+
+        console.error("Download submission error:", error.message);
+
+        if (!res.headersSent) {
+          res.status(500).json({
+            message: "Failed to download submission.",
+          });
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Download submission error:", error.message);
+
+    return res.status(500).json({
+      message: "Failed to download submission.",
+    });
+  }
+}
+
 async function gradeWork(req, res) {
   try {
     const submissionId = Number(req.params.submissionId);
@@ -307,10 +377,11 @@ async function gradeWork(req, res) {
       !Number.isInteger(submissionId) ||
       submissionId <= 0 ||
       !Number.isInteger(grade) ||
-      grade < 0
+      grade < 0 ||
+      grade > 100
     ) {
       return res.status(400).json({
-        message: "Valid submission ID and non-negative grade are required.",
+        message: "A valid submission ID and grade from 0 to 100 are required.",
       });
     }
 
@@ -389,6 +460,7 @@ module.exports = {
   addAssignment,
   listSubmissions,
   submitWork,
+  downloadSubmission,
   gradeWork,
   listMySubmissions,
 };

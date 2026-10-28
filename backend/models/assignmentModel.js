@@ -105,6 +105,26 @@ async function getSubmissionsByAssignment(assignmentId) {
   return result.recordset;
 }
 
+async function getSubmissionById(submissionId) {
+  const pool = await connectDB();
+
+  const result = await pool
+    .request()
+    .input("submissionId", sql.Int, submissionId).query(`
+      SELECT
+        s.SubmissionID,
+        s.StudentID,
+        s.FileURL,
+        a.CourseID
+      FROM Submissions s
+      INNER JOIN Assignments a
+        ON a.AssignmentID = s.AssignmentID
+      WHERE s.SubmissionID = @submissionId
+    `);
+
+  return result.recordset[0] || null;
+}
+
 async function submitAssignment(assignmentId, studentId, fileURL) {
   const pool = await connectDB();
 
@@ -198,6 +218,7 @@ module.exports = {
   createAssignment,
   getAssignmentById,
   getSubmissionsByAssignment,
+  getSubmissionById,
   submitAssignment,
   gradeSubmission,
   getSubmissionsByStudent,

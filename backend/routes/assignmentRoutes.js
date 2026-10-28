@@ -5,6 +5,7 @@ const {
   addAssignment,
   listSubmissions,
   submitWork,
+  downloadSubmission,
   gradeWork,
   listMySubmissions,
 } = require("../controllers/assignmentController");
@@ -45,6 +46,13 @@ router.post(
   authorizeRoles("Student"),
   submissionUpload.single("file"),
   submitWork,
+);
+
+router.get(
+  "/submissions/:submissionId/file",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor", "Student"),
+  downloadSubmission,
 );
 
 router.patch(
