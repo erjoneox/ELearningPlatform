@@ -1,6 +1,8 @@
 const {
   getAssignmentsByCourse,
   createAssignment,
+  updateAssignment,
+  deleteAssignment,
   getAssignmentById,
   getSubmissionsByAssignment,
   getSubmissionById,
@@ -52,6 +54,32 @@ async function removeUploadedFile(file) {
       console.error("Failed to remove uploaded file:", error.message);
     }
   }
+}
+
+async function removeStoredFiles(fileURLs, uploadDirectory) {
+  let failures = 0;
+
+  for (const fileURL of fileURLs.filter(Boolean)) {
+    const filename = path.basename(fileURL);
+    const filePath = path.resolve(uploadDirectory, filename);
+
+    if (!filePath.startsWith(path.resolve(uploadDirectory) + path.sep)) {
+      console.error("Refusing to remove a file outside the upload directory.");
+      failures += 1;
+      continue;
+    }
+
+    try {
+      await fs.unlink(filePath);
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        console.error("Failed to remove stored file:", error.message);
+        failures += 1;
+      }
+    }
+  }
+
+  return failures;
 }
 
 async function listAssignments(req, res) {
@@ -181,7 +209,98 @@ async function addAssignment(req, res) {
   }
 }
 
-async function listSubmissions(req, res) {
+async function editAssignment(req, res) {
+  try {
+    const assignmentId = Number(req.params.assignmentId);
+    const { lessonId, title, description, dueDate, maxPoints } = req.body;
+
+    if (
+      !Number.isInteger(assignmentId) ||
+      assignmentId <= 0 ||
+      typeof title !== "string" ||
+      !title.trim() ||
+      !Number.isInteger(maxPoints) ||
+      maxPoints <= 0 ||
+      maxPoints > 100
+    ) {
+      return res.status(400).json({
+        message: "Valid assignment ID, title and maxPoints from 1 to 100 are required.",
+      });
+    }
+
+    if (
+      dueDate != null &&
+      (typeof dueDate !== "string" || Number.isNaN(Date.parse(dueDate)))
+    ) {
+      return res.status(400).json({
+        message: "Invalid dueDate.",
+      });
+    }
+
+    const assignment = await getAssignmentById(assignmentId);
+
+    if (!assignment) {
+      return res.status(404).json({
+        message: "Assignment not found.",
+      });
+    }
+
+    const course = await getCourseById(assignment.CourseID);
+
+    if (!course || !canManageCourse(course, req.user)) {
+      return res.status(403).json({
+        message: "You cannot manage this assignment.",
+      });
+    }
+
+    let parsedLessonId = null;
+
+    if (lessonId != null && lessonId !== "") {
+      parsedLessonId = Number(lessonId);
+
+      if (!Number.isInteger(parsedLessonId) || parsedLessonId <= 0) {
+        return res.status(400).json({
+          message: "Invalid lesson ID.",
+        });
+      }
+
+      const lesson = await getLessonById(parsedLessonId);
+
+      if (!lesson || Number(lesson.CourseID) !== Number(assignment.CourseID)) {
+        return res.status(400).json({
+          message: "The lesson must belong to this course.",
+        });
+      }
+    }
+
+    const updatedAssignment = await updateAssignment(assignmentId, {
+      lessonId: parsedLessonId,
+      title: title.trim(),
+      description: typeof description === "string" ? description.trim() : null,
+      dueDate: dueDate || null,
+      maxPoints,
+    });
+
+    if (!updatedAssignment) {
+      return res.status(400).json({
+        message: "The maximum points cannot be lower than an existing grade.",
+      });
+    }
+
+    return res.status(200).json({
+      message: "Assignment updated successfully.",
+      assignment: updatedAssignment,
+    });
+  } catch (error) {
+    console.error("Update assignment error:", error.message);
+
+    return res.status(500).json({
+      message: "Failed to update assignment.",
+    });
+  }
+}
+
+async function removeAssignment(req, res) {
   try {
     const assignmentId = Number(req.params.assignmentId);
 
@@ -196,6 +315,69 @@ async function listSubmissions(req, res) {
     if (!assignment) {
       return res.status(404).json({
         message: "Assignment not found.",
+      });
+    }
+
+    const course = await getCourseById(assignment.CourseID);
+
+    if (!course || !canManageCourse(course, req.user)) {
+      return res.status(403).json({
+        message: "You cannot delete this assignment.",
+      });
+    }
+
+    const submissionFiles = await deleteAssignment(assignmentId);
+    const cleanupFailures = await removeStoredFiles(
+      submissionFiles,
+      path.join(__dirname, "../uploads/submissions"),
+    );
+
+    return res.status(200).json({
+      message: "Assignment and its submissions deleted successfully.",
+      warning: cleanupFailures
+        ? `${cleanupFailures} uploaded submission file(s) could not be removed from storage.`
+        : null,
+    });
+  } catch (error) {
+    console.error("Delete assignment error:", error.message);
+
+    return res.status(500).json({
+      message: "Failed to delete assignment.",
+    });
+  }
+}
+
+async function listSubmissions(req, res) {
+  try {
+    const assignmentId = Number(req.params.assignmentId);
+    const requestedCourseId =
+      req.params.courseId == null ? null : Number(req.params.courseId);
+
+    if (
+      !Number.isInteger(assignmentId) ||
+      assignmentId <= 0 ||
+      (requestedCourseId != null &&
+        (!Number.isInteger(requestedCourseId) || requestedCourseId <= 0))
+    ) {
+      return res.status(400).json({
+        message: "Invalid course or assignment ID.",
+      });
+    }
+
+    const assignment = await getAssignmentById(assignmentId);
+
+    if (!assignment) {
+      return res.status(404).json({
+        message: "Assignment not found.",
+      });
+    }
+
+    if (
+      requestedCourseId != null &&
+      Number(assignment.CourseID) !== requestedCourseId
+    ) {
+      return res.status(404).json({
+        message: "Assignment not found in this course.",
       });
     }
 
@@ -458,6 +640,8 @@ async function listMySubmissions(req, res) {
 module.exports = {
   listAssignments,
   addAssignment,
+  editAssignment,
+  removeAssignment,
   listSubmissions,
   submitWork,
   downloadSubmission,

@@ -3,6 +3,8 @@ const express = require("express");
 const {
   listAssignments,
   addAssignment,
+  editAssignment,
+  removeAssignment,
   listSubmissions,
   submitWork,
   downloadSubmission,
@@ -31,6 +33,27 @@ router.post(
   authenticateToken,
   authorizeRoles("Admin", "Instructor"),
   addAssignment,
+);
+
+router.patch(
+  "/:assignmentId",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor"),
+  editAssignment,
+);
+
+router.delete(
+  "/:assignmentId",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor"),
+  removeAssignment,
+);
+
+router.get(
+  "/courses/:courseId/:assignmentId/submissions",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor"),
+  listSubmissions,
 );
 
 router.get(

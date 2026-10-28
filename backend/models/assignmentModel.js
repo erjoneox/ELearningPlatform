@@ -1,6 +1,76 @@
 const { connectDB } = require("../config/db");
 const sql = require("mssql");
 
+async function updateAssignment(assignmentId, data) {
+  const pool = await connectDB();
+
+  const result = await pool
+    .request()
+    .input("assignmentId", sql.Int, assignmentId)
+    .input("lessonId", sql.Int, data.lessonId)
+    .input("title", sql.NVarChar(200), data.title)
+    .input("description", sql.NVarChar(sql.MAX), data.description)
+    .input("dueDate", sql.DateTime2, data.dueDate)
+    .input("maxPoints", sql.Int, data.maxPoints).query(`
+      UPDATE Assignments
+      SET LessonID = @lessonId,
+          Title = @title,
+          Description = @description,
+          DueDate = @dueDate,
+          MaxPoints = @maxPoints
+      OUTPUT
+        INSERTED.AssignmentID,
+        INSERTED.CourseID,
+        INSERTED.LessonID,
+        INSERTED.Title,
+        INSERTED.Description,
+        INSERTED.DueDate,
+        INSERTED.MaxPoints,
+        INSERTED.CreatedAt
+      WHERE AssignmentID = @assignmentId
+        AND NOT EXISTS (
+          SELECT 1
+          FROM Submissions
+          WHERE AssignmentID = @assignmentId
+            AND Grade > @maxPoints
+        )
+    `);
+
+  return result.recordset[0] || null;
+}
+
+async function deleteAssignment(assignmentId) {
+  const pool = await connectDB();
+  const transaction = new sql.Transaction(pool);
+
+  await transaction.begin();
+
+  try {
+    const submissionResult = await new sql.Request(transaction)
+      .input("assignmentId", sql.Int, assignmentId).query(`
+        DELETE FROM Submissions
+        OUTPUT DELETED.FileURL
+        WHERE AssignmentID = @assignmentId
+      `);
+
+    await new sql.Request(transaction)
+      .input("assignmentId", sql.Int, assignmentId).query(`
+        DELETE FROM Assignments
+        WHERE AssignmentID = @assignmentId
+      `);
+
+    await transaction.commit();
+
+    return submissionResult.recordset.map((submission) => submission.FileURL);
+  } catch (error) {
+    if (transaction._aborted !== true) {
+      await transaction.rollback();
+    }
+
+    throw error;
+  }
+}
+
 async function getAssignmentsByCourse(courseId) {
   const pool = await connectDB();
 
@@ -216,6 +286,8 @@ async function getSubmissionsByStudent(studentId) {
 module.exports = {
   getAssignmentsByCourse,
   createAssignment,
+  updateAssignment,
+  deleteAssignment,
   getAssignmentById,
   getSubmissionsByAssignment,
   getSubmissionById,
