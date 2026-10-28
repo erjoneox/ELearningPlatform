@@ -83,7 +83,8 @@ async function editCourse(req, res) {
     }
 
     const isAdmin = req.user.role === "Admin";
-    const isOwner = existingCourse.InstructorID === req.user.userId;
+    const isOwner =
+      Number(existingCourse.InstructorID) === Number(req.user.userId);
 
     if (!isAdmin && !isOwner) {
       return res.status(403).json({

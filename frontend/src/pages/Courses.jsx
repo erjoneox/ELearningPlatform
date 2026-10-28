@@ -21,6 +21,14 @@ function Courses() {
   });
 
   const [creating, setCreating] = useState(false);
+  const [editingCourseId, setEditingCourseId] = useState(null);
+  const [editForm, setEditForm] = useState({
+    title: "",
+    description: "",
+    categoryId: "",
+    thumbnail: "",
+  });
+  const [savingCourseUpdate, setSavingCourseUpdate] = useState(false);
 
   const canManageCourses = ["Admin", "Instructor"].includes(user?.role);
 
@@ -125,6 +133,56 @@ function Courses() {
       });
     } finally {
       setCreating(false);
+    }
+  }
+
+  function startCourseEdit(course) {
+    setEditingCourseId(course.CourseID ?? course.courseId);
+    setEditForm({
+      title: course.Title ?? course.title ?? "",
+      description: course.Description ?? course.description ?? "",
+      categoryId: course.CategoryID ?? course.categoryId ?? "",
+      thumbnail: course.Thumbnail ?? course.thumbnail ?? "",
+    });
+  }
+
+  async function saveCourseEdit(event) {
+    event.preventDefault();
+
+    if (!editForm.title.trim() || !Number(editForm.categoryId)) {
+      Swal.fire({
+        icon: "warning",
+        title: "Të dhëna të pavlefshme",
+        text: "Titulli dhe kategoria e kursit janë të detyrueshme.",
+      });
+      return;
+    }
+
+    setSavingCourseUpdate(true);
+
+    try {
+      await api.put(`/courses/${editingCourseId}`, {
+        title: editForm.title.trim(),
+        description: editForm.description.trim(),
+        categoryId: Number(editForm.categoryId),
+        thumbnail: editForm.thumbnail.trim() || null,
+      });
+
+      setEditingCourseId(null);
+      await loadCourses();
+      Swal.fire({
+        icon: "success",
+        title: "Kursi u përditësua",
+        text: "Ndryshimet u ruajtën me sukses.",
+      });
+    } catch (err) {
+      Swal.fire({
+        icon: "error",
+        title: "Gabim",
+        text: err.response?.data?.message || "Kursi nuk mund të përditësohej.",
+      });
+    } finally {
+      setSavingCourseUpdate(false);
     }
   }
 
@@ -317,6 +375,19 @@ function Courses() {
                         Shiko kursin
                       </Link>
 
+                      {(user?.role === "Admin" ||
+                        (user?.role === "Instructor" &&
+                          Number(course.InstructorID) ===
+                            Number(user.userId))) && (
+                        <button
+                          type="button"
+                          className="btn btn-outline-secondary"
+                          onClick={() => startCourseEdit(course)}
+                        >
+                          Ndrysho kursin
+                        </button>
+                      )}
+
                       {user?.role === "Student" &&
                         (enrolledCourseIds.includes(Number(courseId)) ? (
                           <button
@@ -337,6 +408,110 @@ function Courses() {
                         ))}
                     </div>
                   </div>
+                  {editingCourseId === courseId && (
+                    <form
+                      className="card-footer bg-white p-3"
+                      onSubmit={saveCourseEdit}
+                    >
+                      <h6 className="fw-bold">Përditëso kursin</h6>
+                      <label className="form-label" htmlFor={`course-title-${courseId}`}>
+                        Titulli
+                      </label>
+                      <input
+                        id={`course-title-${courseId}`}
+                        className="form-control mb-2"
+                        maxLength={200}
+                        required
+                        value={editForm.title}
+                        onChange={(event) =>
+                          setEditForm((previous) => ({
+                            ...previous,
+                            title: event.target.value,
+                          }))
+                        }
+                      />
+                      <label
+                        className="form-label"
+                        htmlFor={`course-description-${courseId}`}
+                      >
+                        Përshkrimi
+                      </label>
+                      <textarea
+                        id={`course-description-${courseId}`}
+                        className="form-control mb-2"
+                        rows={3}
+                        value={editForm.description}
+                        onChange={(event) =>
+                          setEditForm((previous) => ({
+                            ...previous,
+                            description: event.target.value,
+                          }))
+                        }
+                      />
+                      <label
+                        className="form-label"
+                        htmlFor={`course-category-${courseId}`}
+                      >
+                        Kategoria
+                      </label>
+                      <select
+                        id={`course-category-${courseId}`}
+                        className="form-select mb-3"
+                        required
+                        value={editForm.categoryId}
+                        onChange={(event) =>
+                          setEditForm((previous) => ({
+                            ...previous,
+                            categoryId: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Zgjedh kategorinë</option>
+                        {categories.map((category) => (
+                          <option
+                            key={category.CategoryID ?? category.categoryId}
+                            value={category.CategoryID ?? category.categoryId}
+                          >
+                            {category.Name ?? category.name}
+                          </option>
+                        ))}
+                      </select>
+                      <label
+                        className="form-label"
+                        htmlFor={`course-thumbnail-${courseId}`}
+                      >
+                        URL-ja e imazhit (opsionale)
+                      </label>
+                      <input
+                        id={`course-thumbnail-${courseId}`}
+                        type="url"
+                        className="form-control mb-3"
+                        value={editForm.thumbnail}
+                        onChange={(event) =>
+                          setEditForm((previous) => ({
+                            ...previous,
+                            thumbnail: event.target.value,
+                          }))
+                        }
+                      />
+                      <div className="d-flex gap-2">
+                        <button
+                          className="btn btn-primary btn-sm"
+                          disabled={savingCourseUpdate}
+                        >
+                          {savingCourseUpdate ? "Duke ruajtur..." : "Ruaj"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline-secondary btn-sm"
+                          disabled={savingCourseUpdate}
+                          onClick={() => setEditingCourseId(null)}
+                        >
+                          Anulo
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               </div>
             );
