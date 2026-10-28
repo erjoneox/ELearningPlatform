@@ -1,0 +1,64 @@
+const express = require("express");
+
+const {
+  listAssignments,
+  addAssignment,
+  listSubmissions,
+  submitWork,
+  gradeWork,
+  listMySubmissions,
+} = require("../controllers/assignmentController");
+
+const {
+  authenticateToken,
+  authorizeRoles,
+} = require("../middleware/authMiddleware");
+
+const submissionUpload = require("../middleware/submissionUploadMiddleware");
+
+const router = express.Router();
+
+router.get(
+  "/courses/:courseId",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor", "Student"),
+  listAssignments,
+);
+
+router.post(
+  "/courses/:courseId",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor"),
+  addAssignment,
+);
+
+router.get(
+  "/:assignmentId/submissions",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor"),
+  listSubmissions,
+);
+
+router.post(
+  "/:assignmentId/submit",
+  authenticateToken,
+  authorizeRoles("Student"),
+  submissionUpload.single("file"),
+  submitWork,
+);
+
+router.patch(
+  "/submissions/:submissionId/grade",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor"),
+  gradeWork,
+);
+
+router.get(
+  "/my-submissions",
+  authenticateToken,
+  authorizeRoles("Student"),
+  listMySubmissions,
+);
+
+module.exports = router;
