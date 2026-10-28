@@ -3,8 +3,12 @@ const express = require("express");
 const {
   listLessons,
   addLesson,
+  editLesson,
+  removeLesson,
   listMaterials,
   addMaterial,
+  editMaterial,
+  removeMaterial,
   downloadMaterial,
 } = require("../controllers/lessonController");
 
@@ -30,6 +34,20 @@ router.post(
   addLesson,
 );
 
+router.patch(
+  "/:lessonId",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor"),
+  editLesson,
+);
+
+router.delete(
+  "/:lessonId",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor"),
+  removeLesson,
+);
+
 router.get(
   "/:lessonId/materials",
   authenticateToken,
@@ -43,6 +61,21 @@ router.post(
   authorizeRoles("Admin", "Instructor"),
   upload.single("file"),
   addMaterial,
+);
+
+router.patch(
+  "/:lessonId/materials/:materialId",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor"),
+  upload.single("file"),
+  editMaterial,
+);
+
+router.delete(
+  "/:lessonId/materials/:materialId",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor"),
+  removeMaterial,
 );
 
 router.get(

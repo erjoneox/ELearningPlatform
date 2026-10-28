@@ -4,12 +4,16 @@ const fs = require("fs");
 const {
   getLessonsByCourse,
   createLesson,
+  updateLesson,
+  deleteLesson,
   getLessonById,
 } = require("../models/lessonModel");
 
 const {
   getMaterialsByLesson,
   createMaterial,
+  updateMaterial,
+  deleteMaterial,
 } = require("../models/materialModel");
 
 const { getCourseById } = require("../models/courseModel");
@@ -45,6 +49,30 @@ async function canAccessCourse(courseId, user) {
     `);
 
   return result.recordset.length > 0;
+}
+
+async function removeStoredMaterial(fileURL) {
+  if (!fileURL) return true;
+
+  const uploadDirectory = path.resolve(__dirname, "../uploads/materials");
+  const filePath = path.resolve(uploadDirectory, path.basename(fileURL));
+
+  if (!filePath.startsWith(uploadDirectory + path.sep)) {
+    console.error("Refusing to remove a file outside the materials directory.");
+    return false;
+  }
+
+  try {
+    await fs.promises.unlink(filePath);
+    return true;
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      console.error("Failed to remove material file:", error.message);
+      return false;
+    }
+
+    return true;
+  }
 }
 
 async function listLessons(req, res) {
@@ -141,6 +169,118 @@ async function addLesson(req, res) {
   }
 }
 
+async function editLesson(req, res) {
+  try {
+    const lessonId = Number(req.params.lessonId);
+    const { title, description, videoURL, orderNumber } = req.body;
+
+    if (
+      !Number.isInteger(lessonId) ||
+      lessonId <= 0 ||
+      typeof title !== "string" ||
+      !title.trim() ||
+      !Number.isInteger(orderNumber) ||
+      orderNumber <= 0 ||
+      (videoURL != null &&
+        (typeof videoURL !== "string" ||
+          (videoURL.trim() && !/^https?:\/\//i.test(videoURL.trim()))))
+    ) {
+      return res.status(400).json({
+        message: "Valid lesson ID, title and order number are required.",
+      });
+    }
+
+    const lesson = await getLessonById(lessonId);
+
+    if (!lesson) {
+      return res.status(404).json({
+        message: "Lesson not found.",
+      });
+    }
+
+    const course = await getCourseById(lesson.CourseID);
+
+    if (!course || !(await canManageCourse(course, req.user))) {
+      return res.status(403).json({
+        message: "You cannot manage this lesson.",
+      });
+    }
+
+    const updatedLesson = await updateLesson(lessonId, {
+      title: title.trim(),
+      description: typeof description === "string" ? description.trim() : null,
+      videoURL: videoURL?.trim() || null,
+      orderNumber,
+    });
+
+    return res.status(200).json({
+      message: "Lesson updated successfully.",
+      lesson: updatedLesson,
+    });
+  } catch (error) {
+    if (error.number === 2601 || error.number === 2627) {
+      return res.status(409).json({
+        message: "This order number is already used in the course.",
+      });
+    }
+
+    console.error("Update lesson error:", error.message);
+
+    return res.status(500).json({
+      message: "Failed to update lesson.",
+    });
+  }
+}
+
+async function removeLesson(req, res) {
+  try {
+    const lessonId = Number(req.params.lessonId);
+
+    if (!Number.isInteger(lessonId) || lessonId <= 0) {
+      return res.status(400).json({
+        message: "Invalid lesson ID.",
+      });
+    }
+
+    const lesson = await getLessonById(lessonId);
+
+    if (!lesson) {
+      return res.status(404).json({
+        message: "Lesson not found.",
+      });
+    }
+
+    const course = await getCourseById(lesson.CourseID);
+
+    if (!course || !(await canManageCourse(course, req.user))) {
+      return res.status(403).json({
+        message: "You cannot delete this lesson.",
+      });
+    }
+
+    const materialFiles = await deleteLesson(lessonId);
+    let cleanupFailures = 0;
+
+    for (const fileURL of materialFiles) {
+      if (!(await removeStoredMaterial(fileURL))) cleanupFailures += 1;
+    }
+
+    return res.status(200).json({
+      message:
+        "Lesson and its materials deleted. Linked assignments and quizzes were kept.",
+      warning: cleanupFailures
+        ? `${cleanupFailures} material file(s) could not be removed from storage.`
+        : null,
+    });
+  } catch (error) {
+    console.error("Delete lesson error:", error.message);
+
+    return res.status(500).json({
+      message: "Failed to delete lesson.",
+    });
+  }
+}
+
 async function listMaterials(req, res) {
   try {
     const lessonId = Number(req.params.lessonId);
@@ -178,17 +318,21 @@ async function listMaterials(req, res) {
 }
 
 async function addMaterial(req, res) {
+  const uploadedFile = req.file;
+
   try {
     const lessonId = Number(req.params.lessonId);
     const { title, materialType } = req.body;
 
     if (!Number.isInteger(lessonId) || lessonId <= 0) {
+      await removeStoredMaterial(uploadedFile?.filename);
       return res.status(400).json({
         message: "Invalid lesson ID.",
       });
     }
 
     if (typeof title !== "string" || !title.trim()) {
+      await removeStoredMaterial(uploadedFile?.filename);
       return res.status(400).json({
         message: "Material title is required.",
       });
@@ -201,6 +345,7 @@ async function addMaterial(req, res) {
     }
 
     if (typeof materialType !== "string" || !materialType.trim()) {
+      await removeStoredMaterial(uploadedFile?.filename);
       return res.status(400).json({
         message: "Material type is required.",
       });
@@ -209,6 +354,7 @@ async function addMaterial(req, res) {
     const lesson = await getLessonById(lessonId);
 
     if (!lesson) {
+      await removeStoredMaterial(uploadedFile?.filename);
       return res.status(404).json({
         message: "Lesson not found.",
       });
@@ -217,12 +363,14 @@ async function addMaterial(req, res) {
     const course = await getCourseById(lesson.CourseID);
 
     if (!course) {
+      await removeStoredMaterial(uploadedFile?.filename);
       return res.status(404).json({
         message: "Course not found.",
       });
     }
 
     if (!(await canManageCourse(course, req.user))) {
+      await removeStoredMaterial(uploadedFile?.filename);
       return res.status(403).json({
         message: "You cannot manage materials for this lesson.",
       });
@@ -241,10 +389,163 @@ async function addMaterial(req, res) {
       material,
     });
   } catch (error) {
+    await removeStoredMaterial(uploadedFile?.filename);
     console.error("Upload material error:", error);
 
     return res.status(500).json({
       message: "Failed to upload material.",
+    });
+  }
+}
+
+async function editMaterial(req, res) {
+  const uploadedFile = req.file;
+
+  try {
+    const lessonId = Number(req.params.lessonId);
+    const materialId = Number(req.params.materialId);
+    const { title, materialType } = req.body;
+
+    if (
+      !Number.isInteger(lessonId) ||
+      lessonId <= 0 ||
+      !Number.isInteger(materialId) ||
+      materialId <= 0 ||
+      typeof title !== "string" ||
+      !title.trim() ||
+      typeof materialType !== "string" ||
+      !materialType.trim()
+    ) {
+      await removeStoredMaterial(uploadedFile?.filename);
+      return res.status(400).json({
+        message: "Valid lesson, material, title and material type are required.",
+      });
+    }
+
+    const lesson = await getLessonById(lessonId);
+
+    if (!lesson) {
+      await removeStoredMaterial(uploadedFile?.filename);
+      return res.status(404).json({
+        message: "Lesson not found.",
+      });
+    }
+
+    const materials = await getMaterialsByLesson(lessonId);
+    const existingMaterial = materials.find(
+      (item) => Number(item.MaterialID) === materialId,
+    );
+
+    if (!existingMaterial) {
+      await removeStoredMaterial(uploadedFile?.filename);
+      return res.status(404).json({
+        message: "Material not found in this lesson.",
+      });
+    }
+
+    const course = await getCourseById(lesson.CourseID);
+
+    if (!course || !(await canManageCourse(course, req.user))) {
+      await removeStoredMaterial(uploadedFile?.filename);
+      return res.status(403).json({
+        message: "You cannot manage this material.",
+      });
+    }
+
+    const updatedMaterial = await updateMaterial(materialId, {
+      title: title.trim(),
+      materialType: materialType.trim(),
+      fileURL: uploadedFile
+        ? `/uploads/materials/${uploadedFile.filename}`
+        : null,
+    });
+
+    if (!updatedMaterial) {
+        await removeStoredMaterial(uploadedFile?.filename);
+        return res.status(404).json({
+          message: "Material not found.",
+        });
+    }
+
+    const oldFileRemoved =
+      !uploadedFile ||
+      !updatedMaterial?.PreviousFileURL ||
+      (await removeStoredMaterial(updatedMaterial.PreviousFileURL));
+
+    return res.status(200).json({
+      message: "Material updated successfully.",
+      material: updatedMaterial,
+      warning: oldFileRemoved
+        ? null
+        : "The previous material file could not be removed from storage.",
+    });
+  } catch (error) {
+    await removeStoredMaterial(uploadedFile?.filename);
+    console.error("Update material error:", error.message);
+
+    return res.status(500).json({
+      message: "Failed to update material.",
+    });
+  }
+}
+
+async function removeMaterial(req, res) {
+  try {
+    const lessonId = Number(req.params.lessonId);
+    const materialId = Number(req.params.materialId);
+
+    if (
+      !Number.isInteger(lessonId) ||
+      lessonId <= 0 ||
+      !Number.isInteger(materialId) ||
+      materialId <= 0
+    ) {
+      return res.status(400).json({
+        message: "Invalid lesson or material ID.",
+      });
+    }
+
+    const lesson = await getLessonById(lessonId);
+
+    if (!lesson) {
+      return res.status(404).json({
+        message: "Lesson not found.",
+      });
+    }
+
+    const materials = await getMaterialsByLesson(lessonId);
+    const material = materials.find(
+      (item) => Number(item.MaterialID) === materialId,
+    );
+
+    if (!material) {
+      return res.status(404).json({
+        message: "Material not found in this lesson.",
+      });
+    }
+
+    const course = await getCourseById(lesson.CourseID);
+
+    if (!course || !(await canManageCourse(course, req.user))) {
+      return res.status(403).json({
+        message: "You cannot delete this material.",
+      });
+    }
+
+    const fileURL = await deleteMaterial(materialId);
+    const fileRemoved = await removeStoredMaterial(fileURL);
+
+    return res.status(200).json({
+      message: "Material deleted successfully.",
+      warning: fileRemoved
+        ? null
+        : "The material record was deleted, but its file could not be removed from storage.",
+    });
+  } catch (error) {
+    console.error("Delete material error:", error.message);
+
+    return res.status(500).json({
+      message: "Failed to delete material.",
     });
   }
 }
@@ -347,7 +648,11 @@ async function downloadMaterial(req, res) {
 module.exports = {
   listLessons,
   addLesson,
+  editLesson,
+  removeLesson,
   listMaterials,
   addMaterial,
+  editMaterial,
+  removeMaterial,
   downloadMaterial,
 };
