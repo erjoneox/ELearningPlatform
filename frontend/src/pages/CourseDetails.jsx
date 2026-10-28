@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import Swal from "sweetalert2";
 
@@ -9,6 +9,7 @@ import Navbar from "../components/Navbar";
 function CourseDetails() {
   const { courseId } = useParams();
   const { user } = useAuth();
+  const activeCourseId = useRef(courseId);
 
   const [lessons, setLessons] = useState([]);
   const [materials, setMaterials] = useState({});
@@ -24,6 +25,15 @@ function CourseDetails() {
   const [assignmentFiles, setAssignmentFiles] = useState({});
   const [savingSubmission, setSavingSubmission] = useState({});
   const [savingAssignment, setSavingAssignment] = useState(false);
+  const [editingAssignmentId, setEditingAssignmentId] = useState(null);
+  const [assignmentEditForm, setAssignmentEditForm] = useState({});
+  const [savingAssignmentEdit, setSavingAssignmentEdit] = useState(false);
+  const [editingLessonId, setEditingLessonId] = useState(null);
+  const [lessonEditForm, setLessonEditForm] = useState({});
+  const [savingLessonEdit, setSavingLessonEdit] = useState(false);
+  const [editingMaterialId, setEditingMaterialId] = useState(null);
+  const [materialEditForm, setMaterialEditForm] = useState({});
+  const [savingMaterialEdit, setSavingMaterialEdit] = useState(false);
 
   const [assignmentForm, setAssignmentForm] = useState({
     title: "",
@@ -56,6 +66,10 @@ function CourseDetails() {
 
   const canManageMaterials =
     user?.role === "Instructor" || user?.role === "Admin";
+
+  useEffect(() => {
+    activeCourseId.current = courseId;
+  }, [courseId]);
 
   // Ngarkimi i mesimeve te kursit
   async function loadLessons() {
@@ -366,7 +380,13 @@ function CourseDetails() {
     try {
       const response = await api.get(`/assignments/courses/${courseId}`);
 
-      setAssignments(response.data.assignments || []);
+      if (activeCourseId.current === courseId) {
+        setAssignments(
+          (response.data.assignments || []).filter(
+            (assignment) => Number(assignment.CourseID) === Number(courseId),
+          ),
+        );
+      }
     } catch (err) {
       Swal.fire({
         icon: "error",
@@ -383,7 +403,13 @@ function CourseDetails() {
     try {
       const response = await api.get("/assignments/my-submissions");
 
-      setMySubmissions(response.data.submissions || []);
+      if (activeCourseId.current === courseId) {
+        setMySubmissions(
+          (response.data.submissions || []).filter(
+            (submission) => Number(submission.CourseID) === Number(courseId),
+          ),
+        );
+      }
     } catch (err) {
       Swal.fire({
         icon: "error",
@@ -402,9 +428,14 @@ function CourseDetails() {
 
     try {
       const response = await api.get(
-        `/assignments/${assignmentId}/submissions`,
+        `/assignments/courses/${courseId}/${assignmentId}/submissions`,
       );
-      const submissions = response.data.submissions || [];
+      if (activeCourseId.current !== courseId) return;
+
+      const submissions = (response.data.submissions || []).filter(
+        (submission) =>
+          Number(submission.AssignmentID) === Number(assignmentId),
+      );
 
       setSubmissionsByAssignment((previous) => ({
         ...previous,
@@ -565,6 +596,332 @@ function CourseDetails() {
     }
   }, [courseId, user?.role]);
 
+  function startAssignmentEdit(assignment) {
+    const dueDate = assignment.DueDate ? new Date(assignment.DueDate) : null;
+
+    if (dueDate) {
+      dueDate.setMinutes(dueDate.getMinutes() - dueDate.getTimezoneOffset());
+    }
+
+    setAssignmentEditForm({
+      title: assignment.Title,
+      description: assignment.Description || "",
+      dueDate: dueDate?.toISOString().slice(0, 16) || "",
+      maxPoints: assignment.MaxPoints,
+      lessonId: assignment.LessonID || "",
+    });
+    setEditingAssignmentId(assignment.AssignmentID);
+  }
+
+  async function saveAssignmentEdit(event) {
+    event.preventDefault();
+    const maxPoints = Number(assignmentEditForm.maxPoints);
+
+    if (
+      !assignmentEditForm.title.trim() ||
+      !Number.isInteger(maxPoints) ||
+      maxPoints < 1 ||
+      maxPoints > 100
+    ) {
+      Swal.fire({
+        icon: "warning",
+        title: "Të dhëna të pavlefshme",
+        text: "Titulli është i detyrueshëm dhe pikët duhet të jenë nga 1 deri në 100.",
+      });
+      return;
+    }
+
+    setSavingAssignmentEdit(true);
+
+    try {
+      await api.patch(`/assignments/${editingAssignmentId}`, {
+        title: assignmentEditForm.title.trim(),
+        description: assignmentEditForm.description.trim(),
+        dueDate: assignmentEditForm.dueDate
+          ? new Date(assignmentEditForm.dueDate).toISOString()
+          : null,
+        maxPoints,
+        lessonId: assignmentEditForm.lessonId || null,
+      });
+
+      setEditingAssignmentId(null);
+      await loadAssignments();
+      Swal.fire({
+        icon: "success",
+        title: "Detyra u përditësua",
+        text: "Ndryshimet u ruajtën me sukses.",
+      });
+    } catch (err) {
+      Swal.fire({
+        icon: "error",
+        title: "Gabim",
+        text: err.response?.data?.message || "Nuk u arrit të përditësohet detyra.",
+      });
+    } finally {
+      setSavingAssignmentEdit(false);
+    }
+  }
+
+  async function removeAssignment(assignment) {
+    const result = await Swal.fire({
+      title: "Fshi detyrën?",
+      text: "Detyra, të gjitha dorëzimet e studentëve dhe skedarët e tyre do të fshihen përgjithmonë.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Fshi detyrën",
+      cancelButtonText: "Anulo",
+      confirmButtonColor: "#dc3545",
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      const response = await api.delete(
+        `/assignments/${assignment.AssignmentID}`,
+      );
+      setAssignments((previous) =>
+        previous.filter(
+          (item) => Number(item.AssignmentID) !== Number(assignment.AssignmentID),
+        ),
+      );
+      setSubmissionsByAssignment((previous) => {
+        const next = { ...previous };
+        delete next[assignment.AssignmentID];
+        return next;
+      });
+      Swal.fire({
+        icon: response.data.warning ? "warning" : "success",
+        title: response.data.warning ? "Kontrollo skedarët" : "Detyra u fshi",
+        text:
+          response.data.warning ||
+          "Detyra dhe dorëzimet e saj u fshinë.",
+      });
+    } catch (err) {
+      Swal.fire({
+        icon: "error",
+        title: "Gabim",
+        text: err.response?.data?.message || "Nuk u arrit të fshihet detyra.",
+      });
+    }
+  }
+
+  function startLessonEdit(lesson) {
+    setLessonEditForm({
+      title: lesson.Title ?? lesson.title ?? "",
+      description: lesson.Description ?? lesson.description ?? "",
+      videoURL: lesson.VideoURL ?? lesson.videoURL ?? "",
+      orderNumber: lesson.OrderNumber ?? lesson.orderNumber ?? 1,
+    });
+    setEditingLessonId(lesson.LessonID ?? lesson.lessonId);
+  }
+
+  async function saveLessonEdit(event) {
+    event.preventDefault();
+    const orderNumber = Number(lessonEditForm.orderNumber);
+
+    if (
+      !lessonEditForm.title.trim() ||
+      !Number.isInteger(orderNumber) ||
+      orderNumber < 1
+    ) {
+      Swal.fire({
+        icon: "warning",
+        title: "Të dhëna të pavlefshme",
+        text: "Titulli dhe numri rendor pozitiv janë të detyrueshëm.",
+      });
+      return;
+    }
+
+    setSavingLessonEdit(true);
+
+    try {
+      await api.patch(`/lessons/${editingLessonId}`, {
+        ...lessonEditForm,
+        title: lessonEditForm.title.trim(),
+        description: lessonEditForm.description.trim(),
+        videoURL: lessonEditForm.videoURL.trim() || null,
+        orderNumber,
+      });
+      setEditingLessonId(null);
+      await loadLessons();
+      Swal.fire({
+        icon: "success",
+        title: "Mësimi u përditësua",
+        text: "Videoja dhe të dhënat e mësimit u ruajtën.",
+      });
+    } catch (err) {
+      Swal.fire({
+        icon: "error",
+        title: "Gabim",
+        text: err.response?.data?.message || "Nuk u arrit të përditësohet mësimi.",
+      });
+    } finally {
+      setSavingLessonEdit(false);
+    }
+  }
+
+  async function removeLessonVideo(lesson) {
+    const lessonId = lesson.LessonID ?? lesson.lessonId;
+    const result = await Swal.fire({
+      title: "Hiq videon?",
+      text: "Lidhja me videon do të hiqet. Mësimi dhe materialet e tij do të mbeten.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Hiq videon",
+      cancelButtonText: "Anulo",
+      confirmButtonColor: "#dc3545",
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      await api.patch(`/lessons/${lessonId}`, {
+        title: lesson.Title ?? lesson.title,
+        description: lesson.Description ?? lesson.description ?? "",
+        videoURL: null,
+        orderNumber: lesson.OrderNumber ?? lesson.orderNumber,
+      });
+      await loadLessons();
+      Swal.fire({
+        icon: "success",
+        title: "Videoja u hoq",
+        text: "Mësimi dhe materialet e tij nuk u ndryshuan.",
+      });
+    } catch (err) {
+      Swal.fire({
+        icon: "error",
+        title: "Gabim",
+        text: err.response?.data?.message || "Nuk u arrit të hiqet videoja.",
+      });
+    }
+  }
+
+  async function removeLesson(lesson) {
+    const lessonId = lesson.LessonID ?? lesson.lessonId;
+    const result = await Swal.fire({
+      title: "Fshi mësimin?",
+      text: "Mësimi, materialet e tij dhe përparimi për këtë mësim do të fshihen. Detyrat dhe kuizet e lidhura do të mbeten pa mësim.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Fshi mësimin",
+      cancelButtonText: "Anulo",
+      confirmButtonColor: "#dc3545",
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      const response = await api.delete(`/lessons/${lessonId}`);
+      setLessons((previous) =>
+        previous.filter(
+          (item) => Number(item.LessonID ?? item.lessonId) !== Number(lessonId),
+        ),
+      );
+      setMaterials((previous) => {
+        const next = { ...previous };
+        delete next[lessonId];
+        return next;
+      });
+      Swal.fire({
+        icon: response.data.warning ? "warning" : "success",
+        title: response.data.warning ? "Kontrollo skedarët" : "Mësimi u fshi",
+        text: response.data.warning || "Mësimi dhe materialet e tij u fshinë.",
+      });
+    } catch (err) {
+      Swal.fire({
+        icon: "error",
+        title: "Gabim",
+        text: err.response?.data?.message || "Nuk u arrit të fshihet mësimi.",
+      });
+    }
+  }
+
+  function startMaterialEdit(material) {
+    setMaterialEditForm({
+      title: material.Title ?? material.title ?? "",
+      materialType: material.MaterialType ?? "Document",
+      file: null,
+    });
+    setEditingMaterialId(material.MaterialID ?? material.materialId);
+  }
+
+  async function saveMaterialEdit(lessonId) {
+    if (!materialEditForm.title.trim()) {
+      Swal.fire({
+        icon: "warning",
+        title: "Titulli është i detyrueshëm",
+        text: "Shkruaj një titull për materialin.",
+      });
+      return;
+    }
+
+    setSavingMaterialEdit(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("title", materialEditForm.title.trim());
+      formData.append("materialType", materialEditForm.materialType);
+      if (materialEditForm.file) {
+        formData.append("file", materialEditForm.file);
+      }
+
+      const response = await api.patch(
+        `/lessons/${lessonId}/materials/${editingMaterialId}`,
+        formData,
+      );
+      setEditingMaterialId(null);
+      await loadMaterials(lessonId);
+      Swal.fire({
+        icon: response.data.warning ? "warning" : "success",
+        title: response.data.warning
+          ? "Kontrollo skedarin e vjetër"
+          : "Materiali u përditësua",
+        text: response.data.warning || "Ndryshimet u ruajtën me sukses.",
+      });
+    } catch (err) {
+      Swal.fire({
+        icon: "error",
+        title: "Gabim",
+        text: err.response?.data?.message || "Nuk u arrit të përditësohet materiali.",
+      });
+    } finally {
+      setSavingMaterialEdit(false);
+    }
+  }
+
+  async function removeMaterial(lessonId, material) {
+    const materialId = material.MaterialID ?? material.materialId;
+    const result = await Swal.fire({
+      title: "Fshi materialin?",
+      text: "Skedari i ngarkuar do të hiqet përgjithmonë.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Fshi materialin",
+      cancelButtonText: "Anulo",
+      confirmButtonColor: "#dc3545",
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      const response = await api.delete(
+        `/lessons/${lessonId}/materials/${materialId}`,
+      );
+      await loadMaterials(lessonId);
+      Swal.fire({
+        icon: response.data.warning ? "warning" : "success",
+        title: response.data.warning ? "Kontrollo skedarin" : "Materiali u fshi",
+        text: response.data.warning || "Materiali dhe skedari i tij u fshinë.",
+      });
+    } catch (err) {
+      Swal.fire({
+        icon: "error",
+        title: "Gabim",
+        text: err.response?.data?.message || "Nuk u arrit të fshihet materiali.",
+      });
+    }
+  }
+
   async function createAssignment(e) {
     e.preventDefault();
 
@@ -701,6 +1058,10 @@ function CourseDetails() {
     return date.toLocaleString("sq-AL");
   }
 
+  const visibleAssignments = assignments.filter(
+    (assignment) => Number(assignment.CourseID) === Number(courseId),
+  );
+
   return (
     <>
       <Navbar />
@@ -805,15 +1166,16 @@ function CourseDetails() {
           )}
 
           {/* Lista e detyrave */}
-          {assignments.length === 0 ? (
+          {visibleAssignments.length === 0 ? (
             <div className="alert alert-info">Nuk ka detyra për këtë kurs.</div>
           ) : (
             <div className="d-flex flex-column gap-3">
-              {assignments.map((assignment) => {
+              {visibleAssignments.map((assignment) => {
                 const assignmentId = assignment.AssignmentID;
                 const existingSubmission = mySubmissions.find(
                   (submission) =>
-                    Number(submission.AssignmentID) === Number(assignmentId),
+                    Number(submission.AssignmentID) === Number(assignmentId) &&
+                    Number(submission.CourseID) === Number(courseId),
                 );
 
                 const deadlinePassed =
@@ -827,6 +1189,154 @@ function CourseDetails() {
                   >
                     <div className="card-body p-4">
                       <h5 className="fw-bold">{assignment.Title}</h5>
+
+                      {canManageAssignments && (
+                        <div className="d-flex gap-2 mb-3">
+                          <button
+                            type="button"
+                            className="btn btn-outline-secondary btn-sm"
+                            onClick={() => startAssignmentEdit(assignment)}
+                          >
+                            Ndrysho detyrën
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline-danger btn-sm"
+                            onClick={() => removeAssignment(assignment)}
+                          >
+                            Fshi detyrën dhe dorëzimet
+                          </button>
+                        </div>
+                      )}
+
+                      {editingAssignmentId === assignmentId && (
+                        <form
+                          className="border rounded p-3 mb-3"
+                          onSubmit={saveAssignmentEdit}
+                        >
+                          <label
+                            className="form-label"
+                            htmlFor={`assignment-title-${assignmentId}`}
+                          >
+                            Titulli
+                          </label>
+                          <input
+                            id={`assignment-title-${assignmentId}`}
+                            className="form-control mb-2"
+                            maxLength={200}
+                            required
+                            value={assignmentEditForm.title}
+                            onChange={(event) =>
+                              setAssignmentEditForm((previous) => ({
+                                ...previous,
+                                title: event.target.value,
+                              }))
+                            }
+                          />
+                          <label
+                            className="form-label"
+                            htmlFor={`assignment-description-${assignmentId}`}
+                          >
+                            Përshkrimi
+                          </label>
+                          <textarea
+                            id={`assignment-description-${assignmentId}`}
+                            className="form-control mb-2"
+                            rows={3}
+                            value={assignmentEditForm.description}
+                            onChange={(event) =>
+                              setAssignmentEditForm((previous) => ({
+                                ...previous,
+                                description: event.target.value,
+                              }))
+                            }
+                          />
+                          <label
+                            className="form-label"
+                            htmlFor={`assignment-due-${assignmentId}`}
+                          >
+                            Afati
+                          </label>
+                          <input
+                            id={`assignment-due-${assignmentId}`}
+                            type="datetime-local"
+                            className="form-control mb-2"
+                            value={assignmentEditForm.dueDate}
+                            onChange={(event) =>
+                              setAssignmentEditForm((previous) => ({
+                                ...previous,
+                                dueDate: event.target.value,
+                              }))
+                            }
+                          />
+                          <label
+                            className="form-label"
+                            htmlFor={`assignment-points-${assignmentId}`}
+                          >
+                            Pikët maksimale
+                          </label>
+                          <input
+                            id={`assignment-points-${assignmentId}`}
+                            type="number"
+                            className="form-control mb-2"
+                            min="1"
+                            max="100"
+                            required
+                            value={assignmentEditForm.maxPoints}
+                            onChange={(event) =>
+                              setAssignmentEditForm((previous) => ({
+                                ...previous,
+                                maxPoints: event.target.value,
+                              }))
+                            }
+                          />
+                          <label
+                            className="form-label"
+                            htmlFor={`assignment-lesson-${assignmentId}`}
+                          >
+                            Mësimi (opsional)
+                          </label>
+                          <select
+                            id={`assignment-lesson-${assignmentId}`}
+                            className="form-select mb-3"
+                            value={assignmentEditForm.lessonId}
+                            onChange={(event) =>
+                              setAssignmentEditForm((previous) => ({
+                                ...previous,
+                                lessonId: event.target.value,
+                              }))
+                            }
+                          >
+                            <option value="">Pa mësim të lidhur</option>
+                            {lessons.map((lesson) => (
+                              <option
+                                key={lesson.LessonID ?? lesson.lessonId}
+                                value={lesson.LessonID ?? lesson.lessonId}
+                              >
+                                {lesson.Title ?? lesson.title}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="d-flex gap-2">
+                            <button
+                              className="btn btn-primary btn-sm"
+                              disabled={savingAssignmentEdit}
+                            >
+                              {savingAssignmentEdit
+                                ? "Duke ruajtur..."
+                                : "Ruaj ndryshimet"}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline-secondary btn-sm"
+                              disabled={savingAssignmentEdit}
+                              onClick={() => setEditingAssignmentId(null)}
+                            >
+                              Anulo
+                            </button>
+                          </div>
+                        </form>
+                      )}
 
                       {assignment.Description && (
                         <p className="text-secondary">
@@ -1238,6 +1748,133 @@ function CourseDetails() {
                     {lesson.Description ?? lesson.description ?? ""}
                   </p>
 
+                  {canManageLessons && (
+                    <div className="d-flex gap-2 flex-wrap mb-3">
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary btn-sm"
+                        onClick={() => startLessonEdit(lesson)}
+                      >
+                        Ndrysho mësimin/videon
+                      </button>
+                      {(lesson.VideoURL || lesson.videoURL) && (
+                        <button
+                          type="button"
+                          className="btn btn-outline-danger btn-sm"
+                          onClick={() => removeLessonVideo(lesson)}
+                        >
+                          Hiq videon
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn btn-outline-danger btn-sm"
+                        onClick={() => removeLesson(lesson)}
+                      >
+                        Fshi mësimin
+                      </button>
+                    </div>
+                  )}
+
+                  {editingLessonId === lessonId && (
+                    <form
+                      className="border rounded p-3 mb-3"
+                      onSubmit={saveLessonEdit}
+                    >
+                      <label
+                        className="form-label"
+                        htmlFor={`lesson-title-${lessonId}`}
+                      >
+                        Titulli
+                      </label>
+                      <input
+                        id={`lesson-title-${lessonId}`}
+                        className="form-control mb-2"
+                        required
+                        value={lessonEditForm.title}
+                        onChange={(event) =>
+                          setLessonEditForm((previous) => ({
+                            ...previous,
+                            title: event.target.value,
+                          }))
+                        }
+                      />
+                      <label
+                        className="form-label"
+                        htmlFor={`lesson-description-${lessonId}`}
+                      >
+                        Përshkrimi
+                      </label>
+                      <textarea
+                        id={`lesson-description-${lessonId}`}
+                        className="form-control mb-2"
+                        rows={3}
+                        value={lessonEditForm.description}
+                        onChange={(event) =>
+                          setLessonEditForm((previous) => ({
+                            ...previous,
+                            description: event.target.value,
+                          }))
+                        }
+                      />
+                      <label
+                        className="form-label"
+                        htmlFor={`lesson-video-${lessonId}`}
+                      >
+                        URL-ja e videos
+                      </label>
+                      <input
+                        id={`lesson-video-${lessonId}`}
+                        type="url"
+                        className="form-control mb-2"
+                        value={lessonEditForm.videoURL}
+                        onChange={(event) =>
+                          setLessonEditForm((previous) => ({
+                            ...previous,
+                            videoURL: event.target.value,
+                          }))
+                        }
+                      />
+                      <label
+                        className="form-label"
+                        htmlFor={`lesson-order-${lessonId}`}
+                      >
+                        Numri rendor
+                      </label>
+                      <input
+                        id={`lesson-order-${lessonId}`}
+                        type="number"
+                        min="1"
+                        step="1"
+                        className="form-control mb-3"
+                        required
+                        value={lessonEditForm.orderNumber}
+                        onChange={(event) =>
+                          setLessonEditForm((previous) => ({
+                            ...previous,
+                            orderNumber: event.target.value,
+                          }))
+                        }
+                      />
+                      <div className="d-flex gap-2">
+                        <button
+                          className="btn btn-primary btn-sm"
+                          disabled={savingLessonEdit}
+                        >
+                          {savingLessonEdit ? "Duke ruajtur..." : "Ruaj"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline-secondary btn-sm"
+                          disabled={savingLessonEdit}
+                          onClick={() => setEditingLessonId(null)}
+                        >
+                          Anulo
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
                   {(lesson.VideoURL || lesson.videoURL) && (
                     <p>
                       <a
@@ -1386,6 +2023,112 @@ function CourseDetails() {
                                 <span className="text-secondary ms-2">
                                   ({material.MaterialType})
                                 </span>
+                              )}
+                              {canManageMaterials && (
+                                <span className="ms-2">
+                                  <button
+                                    type="button"
+                                    className="btn btn-link btn-sm p-0 me-2"
+                                    onClick={() => startMaterialEdit(material)}
+                                  >
+                                    Ndrysho
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-link btn-sm p-0 text-danger"
+                                    onClick={() =>
+                                      removeMaterial(lessonId, material)
+                                    }
+                                  >
+                                    Fshi
+                                  </button>
+                                </span>
+                              )}
+                              {editingMaterialId ===
+                                (material.MaterialID ?? material.materialId) && (
+                                <div className="border rounded p-3 mt-2">
+                                  <label
+                                    className="form-label"
+                                    htmlFor={`material-title-${editingMaterialId}`}
+                                  >
+                                    Titulli
+                                  </label>
+                                  <input
+                                    id={`material-title-${editingMaterialId}`}
+                                    className="form-control mb-2"
+                                    value={materialEditForm.title}
+                                    onChange={(event) =>
+                                      setMaterialEditForm((previous) => ({
+                                        ...previous,
+                                        title: event.target.value,
+                                      }))
+                                    }
+                                  />
+                                  <label
+                                    className="form-label"
+                                    htmlFor={`material-type-${editingMaterialId}`}
+                                  >
+                                    Lloji
+                                  </label>
+                                  <select
+                                    id={`material-type-${editingMaterialId}`}
+                                    className="form-select mb-2"
+                                    value={materialEditForm.materialType}
+                                    onChange={(event) =>
+                                      setMaterialEditForm((previous) => ({
+                                        ...previous,
+                                        materialType: event.target.value,
+                                      }))
+                                    }
+                                  >
+                                    <option value="Link">Link</option>
+                                    <option value="PDF">PDF</option>
+                                    <option value="Video">Video</option>
+                                    <option value="Document">Dokument</option>
+                                  </select>
+                                  <label
+                                    className="form-label"
+                                    htmlFor={`material-file-${editingMaterialId}`}
+                                  >
+                                    Zëvendëso skedarin (opsional)
+                                  </label>
+                                  <input
+                                    id={`material-file-${editingMaterialId}`}
+                                    type="file"
+                                    className="form-control mb-3"
+                                    accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png"
+                                    onChange={(event) =>
+                                      setMaterialEditForm((previous) => ({
+                                        ...previous,
+                                        file: event.target.files?.[0] || null,
+                                      }))
+                                    }
+                                  />
+                                  <div className="d-flex gap-2">
+                                    <button
+                                      type="button"
+                                      className="btn btn-primary btn-sm"
+                                      disabled={savingMaterialEdit}
+                                      onClick={() =>
+                                        saveMaterialEdit(lessonId)
+                                      }
+                                    >
+                                      {savingMaterialEdit
+                                        ? "Duke ruajtur..."
+                                        : "Ruaj"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn btn-outline-secondary btn-sm"
+                                      disabled={savingMaterialEdit}
+                                      onClick={() =>
+                                        setEditingMaterialId(null)
+                                      }
+                                    >
+                                      Anulo
+                                    </button>
+                                  </div>
+                                </div>
                               )}
                             </li>
                           ))}
