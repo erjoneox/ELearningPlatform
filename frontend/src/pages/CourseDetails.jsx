@@ -5,6 +5,7 @@ import Swal from "sweetalert2";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import Navbar from "../components/Navbar";
+import CourseQuizzes from "../components/CourseQuizzes";
 
 function CourseDetails() {
   const { courseId } = useParams();
@@ -1606,6 +1607,12 @@ function CourseDetails() {
             </div>
           )}
         </section>
+
+        <CourseQuizzes
+          courseId={courseId}
+          lessons={lessons}
+          userRole={user?.role}
+        />
 
         {/* Krijimi i mesimit - vetem Instructor dhe Admin */}
         {canManageLessons && (
