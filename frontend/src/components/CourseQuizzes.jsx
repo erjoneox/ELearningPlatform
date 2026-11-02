@@ -18,12 +18,44 @@ function getCurrentTimeMs() {
   return Date.now();
 }
 
+function toLocalDateTimeInput(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 16);
+}
+
+function getQuizWindowState(quiz, nowMs) {
+  if (!quiz.ScheduledStartAt) return "open";
+
+  const startMs = new Date(quiz.ScheduledStartAt).getTime();
+  if (!Number.isFinite(startMs)) return "closed";
+  if (nowMs < startMs) return "upcoming";
+
+  const durationMinutes = Number(quiz.DurationMinutes);
+  if (
+    Number.isFinite(durationMinutes) &&
+    durationMinutes > 0 &&
+    nowMs >= startMs + durationMinutes * 60_000
+  ) {
+    return "ended";
+  }
+
+  return "open";
+}
+
 function CourseQuizzes({ courseId, lessons, userRole }) {
   const [quizzes, setQuizzes] = useState([]);
   const [attempts, setAttempts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [editingQuizId, setEditingQuizId] = useState(null);
+  const [expandedResultsQuizId, setExpandedResultsQuizId] = useState(null);
+  const [quizResults, setQuizResults] = useState({});
+  const [loadingResultsQuizId, setLoadingResultsQuizId] = useState(null);
   const [savingQuiz, setSavingQuiz] = useState(false);
   const [takingQuizId, setTakingQuizId] = useState(null);
   const [activeQuiz, setActiveQuiz] = useState(null);
@@ -31,12 +63,14 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
   const [submittingQuiz, setSubmittingQuiz] = useState(false);
   const [quizResult, setQuizResult] = useState(null);
   const [clockNow, setClockNow] = useState(0);
+  const [serverClockOffsetMs, setServerClockOffsetMs] = useState(0);
   const [serverExpired, setServerExpired] = useState(false);
   const [form, setForm] = useState({
     title: "",
     description: "",
     lessonId: "",
     durationMinutes: "",
+    scheduledStartAt: "",
     questions: [createQuestion()],
   });
 
@@ -49,6 +83,7 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
     try {
       const response = await api.get(`/quizzes/courses/${courseId}`);
       setQuizzes(response.data.quizzes || []);
+      setClockNow(getCurrentTimeMs());
     } catch (requestError) {
       setError(
         requestError.response?.data?.message ||
@@ -83,9 +118,25 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
   }, [loadAttempts, loadQuizzes]);
 
   useEffect(() => {
+    if (
+      activeQuiz ||
+      !quizzes.some((quiz) => quiz.ScheduledStartAt)
+    ) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(
+      () => setClockNow(getCurrentTimeMs()),
+      1000,
+    );
+    return () => window.clearInterval(intervalId);
+  }, [activeQuiz, quizzes]);
+
+  useEffect(() => {
     if (activeQuiz?.expiresAtMs == null || quizResult) return undefined;
 
-    const refreshClock = () => setClockNow(getCurrentTimeMs());
+    const refreshClock = () =>
+      setClockNow(getCurrentTimeMs() + serverClockOffsetMs);
     const intervalId = window.setInterval(refreshClock, 250);
     window.addEventListener("focus", refreshClock);
     document.addEventListener("visibilitychange", refreshClock);
@@ -95,7 +146,7 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
       window.removeEventListener("focus", refreshClock);
       document.removeEventListener("visibilitychange", refreshClock);
     };
-  }, [activeQuiz?.expiresAtMs, quizResult]);
+  }, [activeQuiz?.expiresAtMs, quizResult, serverClockOffsetMs]);
 
   function updateQuestion(questionIndex, updater) {
     setForm((previous) => ({
@@ -136,13 +187,19 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
         !question.options[question.correctOption]?.trim(),
     );
 
-    if (!form.title.trim() || invalidQuestion >= 0) {
+    if (
+      !form.title.trim() ||
+      invalidQuestion >= 0 ||
+      (form.scheduledStartAt && !form.durationMinutes)
+    ) {
       await Swal.fire({
         icon: "warning",
         title: "Kontrollo kuizin",
         text:
           invalidQuestion >= 0
             ? `Pyetja ${invalidQuestion + 1} duhet të ketë tekst dhe të paktën dy alternativa.`
+            : form.scheduledStartAt && !form.durationMinutes
+              ? "Një kuiz i planifikuar duhet të ketë kohëzgjatje."
             : "Titulli i kuizit është i detyrueshëm.",
       });
       return;
@@ -151,12 +208,15 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
     setSavingQuiz(true);
 
     try {
-      await api.post(`/quizzes/courses/${courseId}`, {
+      const payload = {
         title: form.title.trim(),
         description: form.description.trim(),
         lessonId: form.lessonId ? Number(form.lessonId) : null,
         durationMinutes: form.durationMinutes
           ? Number(form.durationMinutes)
+          : null,
+        scheduledStartAt: form.scheduledStartAt
+          ? new Date(form.scheduledStartAt).toISOString()
           : null,
         questions: form.questions.map((question) => ({
           questionText: question.questionText.trim(),
@@ -168,32 +228,139 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
             }))
             .filter((option) => option.optionText),
         })),
-      });
+      };
+
+      if (editingQuizId) {
+        await api.put(`/quizzes/${editingQuizId}`, payload);
+      } else {
+        await api.post(`/quizzes/courses/${courseId}`, payload);
+      }
 
       setForm({
         title: "",
         description: "",
         lessonId: "",
         durationMinutes: "",
+        scheduledStartAt: "",
         questions: [createQuestion()],
       });
+      setEditingQuizId(null);
       setShowCreateForm(false);
       await loadQuizzes();
       await Swal.fire({
         icon: "success",
-        title: "Kuizi u krijua",
+        title: editingQuizId ? "Kuizi u përditësua" : "Kuizi u krijua",
         text: "Kuizi dhe pyetjet u ruajtën në kurs.",
       });
     } catch (requestError) {
       await Swal.fire({
         icon: "error",
-        title: "Nuk u krijua kuizi",
+        title: editingQuizId
+          ? "Kuizi nuk u përditësua"
+          : "Nuk u krijua kuizi",
         text:
           requestError.response?.data?.message ||
           "Kontrollo lidhjen me serverin dhe provo përsëri.",
       });
     } finally {
       setSavingQuiz(false);
+    }
+  }
+
+  async function editQuiz(quizId) {
+    try {
+      const response = await api.get(`/quizzes/${quizId}`);
+      const quiz = response.data.quiz;
+      setForm({
+        title: quiz.Title,
+        description: quiz.Description || "",
+        lessonId: quiz.LessonID ? String(quiz.LessonID) : "",
+        durationMinutes:
+          quiz.DurationMinutes == null ? "" : String(quiz.DurationMinutes),
+        scheduledStartAt: toLocalDateTimeInput(quiz.ScheduledStartAt),
+        questions: quiz.questions.map((question) => {
+          const options = question.options.map((option) => option.optionText);
+          while (options.length < 4) options.push("");
+          return {
+            questionText: question.questionText,
+            options,
+            correctOption: question.options.findIndex(
+              (option) => option.isCorrect,
+            ),
+          };
+        }),
+      });
+      setEditingQuizId(quizId);
+      setShowCreateForm(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (requestError) {
+      await Swal.fire({
+        icon: "error",
+        title: "Kuizi nuk mund të modifikohet",
+        text:
+          requestError.response?.data?.message ||
+          "Nuk u arrit të ngarkohet kuizi.",
+      });
+    }
+  }
+
+  async function removeQuiz(quizId, title) {
+    const confirmation = await Swal.fire({
+      icon: "warning",
+      title: "Fshi kuizin?",
+      text: `Kuizi "${title}" dhe të gjitha pyetjet, alternativat dhe rezultatet e tij do të fshihen.`,
+      showCancelButton: true,
+      confirmButtonText: "Fshi kuizin",
+      cancelButtonText: "Anulo",
+      confirmButtonColor: "#dc3545",
+    });
+
+    if (!confirmation.isConfirmed) return;
+
+    try {
+      await api.delete(`/quizzes/${quizId}`);
+      await loadQuizzes();
+      await Swal.fire({
+        icon: "success",
+        title: "Kuizi u fshi",
+      });
+    } catch (requestError) {
+      await Swal.fire({
+        icon: "error",
+        title: "Kuizi nuk u fshi",
+        text:
+          requestError.response?.data?.message ||
+          "Nuk u arrit të fshihet kuizi.",
+      });
+    }
+  }
+
+  async function toggleQuizResults(quizId) {
+    if (expandedResultsQuizId === quizId) {
+      setExpandedResultsQuizId(null);
+      return;
+    }
+
+    setExpandedResultsQuizId(quizId);
+    setLoadingResultsQuizId(quizId);
+
+    try {
+      const response = await api.get(`/quizzes/${quizId}/results`);
+      setQuizResults((previous) => ({
+        ...previous,
+        [quizId]: response.data.students || [],
+      }));
+    } catch (requestError) {
+      setExpandedResultsQuizId(null);
+      await Swal.fire({
+        icon: "error",
+        title: "Rezultatet nuk u ngarkuan",
+        text:
+          requestError.response?.data?.message ||
+          "Nuk u arrit të ngarkohen rezultatet e kuizit.",
+      });
+    } finally {
+      setLoadingResultsQuizId(null);
     }
   }
 
@@ -206,12 +373,22 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
 
     try {
       const response = await api.get(`/quizzes/${quizId}/take`);
-      setClockNow(getCurrentTimeMs());
+      const serverNowMs = Number(response.data.quiz.serverNowMs);
+      if (Number.isFinite(serverNowMs)) {
+        setServerClockOffsetMs(serverNowMs - getCurrentTimeMs());
+        setClockNow(serverNowMs);
+      } else {
+        setClockNow(getCurrentTimeMs());
+      }
       setActiveQuiz({
         ...response.data.quiz,
         questions: response.data.questions,
       });
     } catch (requestError) {
+      if (requestError.response?.status === 409) {
+        await loadAttempts();
+      }
+
       await Swal.fire({
         icon: "error",
         title: "Kuizi nuk u hap",
@@ -258,6 +435,7 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
     } catch (requestError) {
       if (requestError.response?.status === 410) {
         setServerExpired(true);
+        await loadAttempts();
         await Swal.fire({
           icon: "info",
           title: "Koha përfundoi",
@@ -285,9 +463,6 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
     setServerExpired(false);
   }
 
-  const selectedQuizAttempts = attempts.filter(
-    (attempt) => Number(attempt.QuizID) === Number(activeQuiz?.quizId),
-  );
   const expiresAtMs =
     activeQuiz?.expiresAtMs == null ? null : Number(activeQuiz.expiresAtMs);
   const remainingSeconds =
@@ -311,7 +486,18 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
           <button
             type="button"
             className="btn btn-primary"
-            onClick={() => setShowCreateForm(true)}
+            onClick={() => {
+              setEditingQuizId(null);
+              setForm({
+                title: "",
+                description: "",
+                lessonId: "",
+                durationMinutes: "",
+                scheduledStartAt: "",
+                questions: [createQuestion()],
+              });
+              setShowCreateForm(true);
+            }}
           >
             + Krijo kuiz
           </button>
@@ -337,7 +523,9 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
       {canManage && showCreateForm && (
         <form className="card card-body shadow-sm mb-4" onSubmit={createQuiz}>
           <div className="d-flex justify-content-between align-items-center gap-3 mb-3">
-            <h3 className="h5 fw-bold mb-0">Krijo kuiz të ri</h3>
+            <h3 className="h5 fw-bold mb-0">
+              {editingQuizId ? "Modifiko kuizin" : "Krijo kuiz të ri"}
+            </h3>
             <span className="badge text-bg-primary">
               {form.questions.length} / 50 pyetje
             </span>
@@ -397,6 +585,26 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
               </option>
             ))}
           </select>
+
+          <label className="form-label" htmlFor="quiz-scheduled-start">
+            Data dhe ora e hapjes (opsionale)
+          </label>
+          <input
+            id="quiz-scheduled-start"
+            type="datetime-local"
+            className="form-control mb-2"
+            value={form.scheduledStartAt}
+            onChange={(event) =>
+              setForm((previous) => ({
+                ...previous,
+                scheduledStartAt: event.target.value,
+              }))
+            }
+          />
+          <p className="small text-secondary mb-3">
+            Kur caktohet, kuizi hapet vetëm në këtë datë dhe orë. Afati mbyllet
+            automatikisht pas kohëzgjatjes së zgjedhur.
+          </p>
 
           <label className="form-label" htmlFor="quiz-lesson">
             Lidhe me një mësim (opsionale)
@@ -528,13 +736,20 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
               className="btn btn-success"
               disabled={savingQuiz}
             >
-              {savingQuiz ? "Duke ruajtur..." : "Ruaj kuizin"}
+              {savingQuiz
+                ? "Duke ruajtur..."
+                : editingQuizId
+                  ? "Ruaj ndryshimet"
+                  : "Ruaj kuizin"}
             </button>
             <button
               type="button"
               className="btn btn-outline-secondary"
               disabled={savingQuiz}
-              onClick={() => setShowCreateForm(false)}
+              onClick={() => {
+                setShowCreateForm(false);
+                setEditingQuizId(null);
+              }}
             >
               Anulo
             </button>
@@ -679,8 +894,16 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
               const quizAttempts = attempts.filter(
                 (attempt) => Number(attempt.QuizID) === Number(quizId),
               );
-              const latestAttempt = quizAttempts[0];
+              const completedAttempt = quizAttempts.find(
+                (attempt) => attempt.CompletedAt != null,
+              );
+              const activeAttempt = quizAttempts.find(
+                (attempt) => attempt.CompletedAt == null,
+              );
               const questionCount = Number(quiz.QuestionCount);
+              const windowState = getQuizWindowState(quiz, clockNow);
+              const attemptHasEnded =
+                windowState === "ended" && Boolean(activeAttempt);
 
               return (
                 <div className="col-md-6" key={quizId}>
@@ -715,36 +938,180 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
                           Kohëzgjatja: {quiz.DurationMinutes} minuta
                         </p>
                       )}
-                      {userRole === "Student" && latestAttempt && (
-                        <div className="alert alert-light border py-2">
-                          Përpjekje: {quizAttempts.length} ·{" "}
-                          {latestAttempt.Score == null ? (
-                            <strong>Përpjekja e fundit nuk u dorëzua.</strong>
+                      {quiz.ScheduledStartAt && (
+                        <p className="small text-secondary">
+                          Hapet: {formatQuizDate(quiz.ScheduledStartAt)}
+                        </p>
+                      )}
+                      {userRole === "Student" &&
+                        windowState === "upcoming" && (
+                          <div className="alert alert-info py-2">
+                            Kuizi hapet në{" "}
+                            <strong>
+                              {formatQuizDate(quiz.ScheduledStartAt)}
+                            </strong>
+                          </div>
+                        )}
+                      {userRole === "Student" &&
+                        (windowState === "ended" || attemptHasEnded) && (
+                          <div className="alert alert-secondary py-2">
+                            Afati i kuizit ka përfunduar.
+                          </div>
+                        )}
+                      {canManage && (
+                        <div className="d-flex flex-wrap gap-2 mt-auto mb-3">
+                          <button
+                            type="button"
+                            className="btn btn-outline-success btn-sm"
+                            disabled={loadingResultsQuizId === quizId}
+                            onClick={() => toggleQuizResults(quizId)}
+                          >
+                            {loadingResultsQuizId === quizId
+                              ? "Duke ngarkuar..."
+                              : expandedResultsQuizId === quizId
+                                ? "Fshih rezultatet"
+                                : "Rezultatet"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline-primary btn-sm"
+                            onClick={() => editQuiz(quizId)}
+                          >
+                            Modifiko
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline-danger btn-sm"
+                            onClick={() => removeQuiz(quizId, quiz.Title)}
+                          >
+                            Fshi
+                          </button>
+                        </div>
+                      )}
+                      {canManage && expandedResultsQuizId === quizId && (
+                        <div className="border rounded p-3 mb-3">
+                          <h4 className="h6 fw-bold mb-3">
+                            Rezultatet e studentëve të regjistruar
+                          </h4>
+                          {loadingResultsQuizId === quizId ? (
+                            <p className="text-secondary mb-0">
+                              Duke ngarkuar rezultatet...
+                            </p>
+                          ) : quizResults[quizId]?.length ? (
+                            <div className="table-responsive">
+                              <table className="table table-sm table-hover align-middle mb-0">
+                                <thead>
+                                  <tr>
+                                    <th scope="col">Studenti</th>
+                                    <th scope="col">Pikët</th>
+                                    <th scope="col">Tentativa</th>
+                                    <th scope="col">Gjendja</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {quizResults[quizId].map((student) => (
+                                    <tr key={student.StudentID}>
+                                      <td>
+                                        <div className="fw-semibold">
+                                          {student.FirstName} {student.LastName}
+                                        </div>
+                                        <small className="text-secondary">
+                                          {student.Email}
+                                        </small>
+                                      </td>
+                                      <td>
+                                        <strong>
+                                          {Number(student.Score).toFixed(2)} /
+                                          100
+                                        </strong>
+                                      </td>
+                                      <td>{student.AttemptCount}</td>
+                                      <td>
+                                        <span
+                                          className={`badge ${
+                                            student.ResultStatus === "Submitted"
+                                              ? "text-bg-success"
+                                              : student.ResultStatus ===
+                                                  "Absent"
+                                                ? "text-bg-danger"
+                                                : "text-bg-warning"
+                                          }`}
+                                        >
+                                          {student.ResultStatus ===
+                                          "Submitted"
+                                            ? "Përfunduar"
+                                            : student.ResultStatus === "Absent"
+                                              ? "Mungon · 0 tentativa"
+                                              : "Nuk u dorëzua"}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
                           ) : (
-                            <>
-                              Rezultati i fundit:{" "}
-                              <strong>
-                                {Number(latestAttempt.Score).toFixed(2)} / 100
-                              </strong>
-                            </>
+                            <p className="text-secondary mb-0">
+                              Nuk ka studentë aktivë të regjistruar në këtë
+                              kurs.
+                            </p>
                           )}
                         </div>
                       )}
+                      {userRole === "Student" &&
+                        (completedAttempt || activeAttempt) && (
+                          <div className="alert alert-light border py-2">
+                            {completedAttempt ? (
+                              <>
+                                Përpjekja e vetme është përdorur.{" "}
+                                {completedAttempt.Score == null ? (
+                                  <strong>
+                                    Përpjekja përfundoi pa rezultat të
+                                    regjistruar.
+                                  </strong>
+                                ) : (
+                                  <>
+                                    Rezultati:{" "}
+                                    <strong>
+                                      {Number(completedAttempt.Score).toFixed(
+                                        2,
+                                      )}{" "}
+                                      / 100
+                                    </strong>
+                                  </>
+                                )}
+                              </>
+                            ) : (
+                              <strong>
+                                Përpjekja ka nisur. Mund të vazhdosh të njëjtën
+                                përpjekje.
+                              </strong>
+                            )}
+                          </div>
+                        )}
                       {userRole === "Student" && (
                         <button
                           type="button"
                           className="btn btn-primary mt-auto align-self-start"
                           disabled={
                             questionCount < 1 ||
-                            takingQuizId === Number(quizId)
+                            takingQuizId === Number(quizId) ||
+                            Boolean(completedAttempt) ||
+                            windowState !== "open"
                           }
                           onClick={() => beginQuiz(quizId)}
                         >
                           {takingQuizId === Number(quizId)
                             ? "Duke hapur..."
-                            : latestAttempt
-                              ? "Provo përsëri"
-                              : "Fillo kuizin"}
+                            : completedAttempt
+                              ? "Përpjekja u përdor"
+                              : activeAttempt
+                                ? "Vazhdo kuizin"
+                                : windowState === "upcoming"
+                                  ? "Ende nuk është hapur"
+                                  : windowState === "ended"
+                                    ? "Afati përfundoi"
+                                    : "Fillo kuizin"}
                         </button>
                       )}
                     </div>
@@ -756,11 +1123,6 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
         </>
       )}
 
-      {activeQuiz && selectedQuizAttempts.length > 0 && !quizResult && (
-        <p className="small text-secondary mt-2">
-          Përpjekjet e mëparshme për këtë kuiz: {selectedQuizAttempts.length}
-        </p>
-      )}
     </section>
   );
 }
