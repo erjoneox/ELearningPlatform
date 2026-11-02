@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import Swal from "sweetalert2";
 import api from "../api/axios";
 
@@ -47,6 +48,7 @@ function getQuizWindowState(quiz, nowMs) {
 }
 
 function CourseQuizzes({ courseId, lessons, userRole }) {
+  const location = useLocation();
   const [quizzes, setQuizzes] = useState([]);
   const [attempts, setAttempts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -116,6 +118,20 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
     loadQuizzes();
     loadAttempts();
   }, [loadAttempts, loadQuizzes]);
+
+  useEffect(() => {
+    if (loading || !location.hash.startsWith("#quiz-")) return undefined;
+
+    const quizId = location.hash.slice("#quiz-".length);
+    const frameId = window.requestAnimationFrame(() => {
+      document.getElementById(`quiz-${quizId}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [loading, location.hash, quizzes]);
 
   useEffect(() => {
     if (
@@ -907,7 +923,11 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
 
               return (
                 <div className="col-md-6" key={quizId}>
-                  <article className="card border-0 shadow-sm h-100">
+                  <article
+                    id={`quiz-${quizId}`}
+                    className="card border-0 shadow-sm h-100"
+                    style={{ scrollMarginTop: "6rem" }}
+                  >
                     <div className="card-body p-4 d-flex flex-column">
                       <div className="d-flex justify-content-between gap-2">
                         <h3 className="h5 fw-bold">{quiz.Title}</h3>

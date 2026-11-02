@@ -1,59 +1,55 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import "./Dashboard.css";
 
 const roleDetails = {
   Student: {
-    title: "Mësimi yt, me një shikim",
-    description:
-      "Ndiq progresin në kurse, kontrollo afatet dhe shiko vlerësimet e tua.",
+    title: "Welcome back",
+    description: "Your courses, learning progress, and next steps at a glance.",
   },
   Instructor: {
-    title: "Përmbledhja e mësimdhënies",
-    description:
-      "Menaxho kurset dhe kontrollo dorëzimet që presin vlerësim.",
+    title: "Teaching Overview",
+    description: "Manage your courses and review student submissions.",
   },
   Admin: {
-    title: "Përmbledhja e platformës",
-    description:
-      "Monitoro aktivitetin, kurset dhe dorëzimet që presin vlerësim.",
+    title: "Platform Overview",
+    description: "Monitor courses, users, and pending submissions.",
   },
 };
 
 const statisticDetails = {
   Student: [
-    { key: "EnrolledCourses", label: "Kurset e mia", icon: "K" },
-    { key: "PendingAssignments", label: "Detyra të hapura", icon: "D" },
-    { key: "DueToday", label: "Afati sot", icon: "S", tone: "warning" },
-    { key: "SubmittedAssignments", label: "Dorëzime të bëra", icon: "✓" },
-    { key: "CompletedLessons", label: "Mësime të përfunduara", icon: "M" },
-    { key: "QuizAttempts", label: "Kuize të përfunduara", icon: "Q" },
+    { key: "EnrolledCourses", label: "My Courses", icon: "K" },
+    { key: "PendingAssignments", label: "Pending Assignments", icon: "D" },
+    { key: "DueToday", label: "Due Today", icon: "S", tone: "warning" },
+    { key: "SubmittedAssignments", label: "Submitted", icon: "✓" },
+    { key: "CompletedLessons", label: "Completed Lessons", icon: "M" },
+    { key: "QuizAttempts", label: "Quiz Attempts", icon: "Q" },
   ],
   Instructor: [
-    { key: "ActiveCourses", label: "Kurse aktive", icon: "K" },
-    { key: "Students", label: "Studentë në kurse", icon: "S" },
+    { key: "ActiveCourses", label: "Active Courses", icon: "K" },
+    { key: "Students", label: "Students", icon: "S" },
     {
       key: "UngradedSubmissions",
-      label: "Presin vlerësim",
+      label: "Ungraded",
       icon: "!",
       tone: "warning",
     },
-    { key: "TotalAssignments", label: "Detyra të publikuara", icon: "D" },
-    { key: "TotalSubmissions", label: "Dorëzime gjithsej", icon: "✓" },
+    { key: "TotalAssignments", label: "Assignments", icon: "D" },
+    { key: "TotalSubmissions", label: "Submissions", icon: "✓" },
   ],
   Admin: [
-    { key: "ActiveUsers", label: "Përdorues aktivë", icon: "P" },
-    { key: "Students", label: "Studentë", icon: "S" },
-    { key: "Instructors", label: "Instruktorë", icon: "I" },
-    { key: "ActiveCourses", label: "Kurse aktive", icon: "K" },
-    { key: "ActiveEnrollments", label: "Regjistrime aktive", icon: "R" },
-    { key: "TotalSubmissions", label: "Dorëzime gjithsej", icon: "✓" },
+    { key: "ActiveUsers", label: "Active Users", icon: "P" },
+    { key: "Students", label: "Students", icon: "S" },
+    { key: "Instructors", label: "Instructors", icon: "I" },
+    { key: "ActiveCourses", label: "Active Courses", icon: "K" },
+    { key: "ActiveEnrollments", label: "Enrollments", icon: "R" },
+    { key: "TotalSubmissions", label: "Submissions", icon: "✓" },
     {
       key: "UngradedSubmissions",
-      label: "Presin vlerësim",
+      label: "Ungraded",
       icon: "!",
       tone: "warning",
     },
@@ -61,13 +57,12 @@ const statisticDetails = {
 };
 
 function formatDate(value, includeTime = false) {
-  if (!value) return "Pa afat";
+  if (!value) return "No date set";
 
   const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Invalid date";
 
-  if (Number.isNaN(date.getTime())) return "Datë e pavlefshme";
-
-  return new Intl.DateTimeFormat("sq-AL", {
+  return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     ...(includeTime ? { timeStyle: "short" } : {}),
   }).format(date);
@@ -81,7 +76,9 @@ function StatCard({ label, value, icon, tone }) {
       </span>
       <div>
         <p className="dashboard-stat-label">{label}</p>
-        <p className="dashboard-stat-value">{Number(value || 0).toLocaleString("sq-AL")}</p>
+        <p className="dashboard-stat-value">
+          {Number(value || 0).toLocaleString()}
+        </p>
       </div>
     </article>
   );
@@ -104,6 +101,176 @@ function Section({ title, description, action, children, className = "" }) {
 
 function EmptyState({ children }) {
   return <div className="dashboard-empty">{children}</div>;
+}
+
+function CourseList({ courses, instructorView = false, emptyText }) {
+  if (!courses?.length) return <EmptyState>{emptyText}</EmptyState>;
+
+  return (
+    <div className="dashboard-course-grid">
+      {courses.map((course) => {
+        const progress = Number(course.progress || 0);
+        const title = course.CourseTitle || course.Title || "Course";
+
+        return (
+          <article className="dashboard-course-card" key={course.CourseID}>
+            <div className="dashboard-course-card-top">
+              <span className="dashboard-course-mark" aria-hidden="true">
+                {title.slice(0, 1).toUpperCase()}
+              </span>
+              {instructorView ? (
+                <span className="dashboard-count-badge">
+                  {Number(course.Students || 0)} students
+                </span>
+              ) : (
+                <span className="dashboard-course-percent">{progress}%</span>
+              )}
+            </div>
+            <h3 title={title}>{title}</h3>
+            <p>
+              {instructorView
+                ? `${Number(course.Assignments || 0)} assignments · ${Number(course.UngradedSubmissions || 0)} awaiting review`
+                : `${Number(course.completedLessons || 0)} of ${Number(course.totalLessons || 0)} lessons completed`}
+            </p>
+            {!instructorView && (
+              <div
+                className="progress dashboard-progress"
+                role="progressbar"
+                aria-label={`${title} progress`}
+                aria-valuenow={progress}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <div
+                  className="progress-bar"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            )}
+            <Link
+              to={`/courses/${course.CourseID}`}
+              className="dashboard-text-link"
+            >
+              {instructorView ? "Manage course" : "Continue learning"} →
+            </Link>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function SubmissionList({ items, emptyText }) {
+  if (!items?.length) return <EmptyState>{emptyText}</EmptyState>;
+
+  return (
+    <div className="dashboard-list">
+      {items.map((submission) => (
+        <article className="dashboard-list-item" key={submission.SubmissionID}>
+          <span className="dashboard-submission-icon" aria-hidden="true">
+            !
+          </span>
+          <div className="dashboard-list-content">
+            <h3>{submission.StudentName}</h3>
+            <p>
+              {submission.AssignmentTitle} · {submission.CourseTitle}
+            </p>
+          </div>
+          <div className="dashboard-list-meta">
+            <span>{formatDate(submission.SubmittedAt, true)}</span>
+            <Link
+              to={`/courses/${submission.CourseID}`}
+              className="dashboard-text-link"
+            >
+              Review
+            </Link>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function UpcomingQuizList({ quizzes }) {
+  if (!quizzes?.length) {
+    return (
+      <div className="dashboard-empty">
+        You’re nailing it — no upcoming quizzes to worry about right now.
+      </div>
+    );
+  }
+
+  return (
+    <div className="dashboard-list">
+      {quizzes.map((quiz) => {
+        const quizUrl = `/courses/${quiz.CourseID}#quiz-${quiz.QuizID}`;
+        const isScheduled = quiz.ScheduledStartAt != null;
+
+        return (
+          <article className="dashboard-list-item" key={quiz.QuizID}>
+            <span className="dashboard-status-dot dashboard-status-upcoming" />
+            <div className="dashboard-list-content">
+              <h3>{quiz.Title}</h3>
+              <p>{quiz.CourseTitle}</p>
+            </div>
+            <div className="dashboard-list-meta">
+              <span>
+                {isScheduled
+                  ? `Opens ${formatDate(quiz.ScheduledStartAt, true)}`
+                  : quiz.QuizStatus === "InProgress"
+                    ? "Resume your attempt"
+                    : quiz.DurationMinutes
+                      ? `${quiz.DurationMinutes} minutes`
+                      : "Ready when you are"}
+              </span>
+              <Link to={quizUrl} className="dashboard-text-link">
+                {quiz.QuizStatus === "InProgress"
+                  ? "Continue quiz"
+                  : "Open quiz"}
+              </Link>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function RecentMaterialList({ materials }) {
+  if (!materials?.length) {
+    return (
+      <div className="dashboard-empty">
+        No new course materials in the last 24 hours. Keep up your great work!
+      </div>
+    );
+  }
+
+  return (
+    <div className="dashboard-list">
+      {materials.map((material) => (
+        <article className="dashboard-list-item" key={material.MaterialID}>
+          <span className="dashboard-submission-icon" aria-hidden="true">
+            {material.MaterialType === "Video" ? "▶" : "↗"}
+          </span>
+          <div className="dashboard-list-content">
+            <h3>{material.Title}</h3>
+            <p>
+              {material.CourseTitle} · {material.LessonTitle}
+            </p>
+          </div>
+          <div className="dashboard-list-meta">
+            <span>{formatDate(material.CreatedAt, true)}</span>
+            <Link
+              to={`/courses/${material.CourseID}?lesson=${material.LessonID}#material-${material.MaterialID}`}
+              className="dashboard-text-link"
+            >
+              Open material
+            </Link>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
 }
 
 function AssignmentList({ items, emptyText, status }) {
@@ -129,7 +296,7 @@ function AssignmentList({ items, emptyText, status }) {
               to={`/courses/${assignment.CourseID}`}
               className="dashboard-text-link"
             >
-              Hap kursin
+              View course
             </Link>
           </div>
         </article>
@@ -138,188 +305,128 @@ function AssignmentList({ items, emptyText, status }) {
   );
 }
 
-function SubmissionList({ items, emptyText, instructorView = false }) {
-  if (!items?.length) return <EmptyState>{emptyText}</EmptyState>;
+function StudentDashboard({ dashboard }) {
+  const primaryCourse = dashboard.courses?.[0];
+  const progress = Number(primaryCourse?.progress || 0);
 
   return (
-    <div className="dashboard-list">
-      {items.map((submission) => (
-        <article
-          className="dashboard-list-item"
-          key={submission.SubmissionID}
+    <div className="row g-4">
+      {/* Left Column */}
+      <div className="col-lg-8">
+        {/* Ongoing Course Hero Banner */}
+        <div
+          className="text-white p-4 rounded-4 position-relative overflow-hidden shadow-sm mb-4 d-flex flex-column justify-content-between"
+          style={{ backgroundColor: "#5640EE", minHeight: "220px" }}
         >
-          <span className="dashboard-submission-icon" aria-hidden="true">
-            {submission.Grade == null ? "!" : "✓"}
-          </span>
-          <div className="dashboard-list-content">
-            <h3>
-              {instructorView
-                ? submission.StudentName
-                : submission.AssignmentTitle}
+          <div>
+            <span
+              className="text-uppercase fw-bold text-white-50"
+              style={{ fontSize: "0.7rem", letterSpacing: "0.05rem" }}
+            >
+              Ongoing Course
+            </span>
+            <h3
+              className="fw-bold display-6 mt-1 mb-2"
+              style={{ fontSize: "1.5rem" }}
+            >
+              {primaryCourse
+                ? primaryCourse.CourseTitle
+                : "Welcome to EduFlow Learning"}
             </h3>
-            <p>
-              {instructorView
-                ? `${submission.AssignmentTitle} · ${submission.CourseTitle}`
-                : submission.CourseTitle}
+            <p className="text-white-50 small mb-4">
+              {primaryCourse
+                ? "Continue mastering your current module and lessons."
+                : "Explore your enrolled courses to start learning."}
             </p>
           </div>
-          <div className="dashboard-list-meta">
-            {instructorView ? (
-              <span>{formatDate(submission.SubmittedAt, true)}</span>
-            ) : (
+
+          <div>
+            {primaryCourse && (
               <>
-                <span>
-                  {submission.Grade == null
-                    ? "Në pritje"
-                    : `Nota: ${submission.Grade} / ${submission.MaxPoints}`}
-                </span>
-                <Link
-                  to={`/courses/${submission.CourseID}`}
-                  className="dashboard-text-link"
+                <div className="d-flex justify-content-between align-items-center mb-1 small fw-semibold">
+                  <span>Progress</span>
+                  <span>{progress}% Complete</span>
+                </div>
+                <div
+                  className="progress bg-white bg-opacity-25 mb-3"
+                  style={{ height: "6px" }}
                 >
-                  Shiko punën
-                </Link>
+                  <div
+                    className="progress-bar bg-white rounded-pill"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
               </>
             )}
-            {instructorView && (
-              <Link
-                to={`/courses/${submission.CourseID}`}
-                className="dashboard-text-link"
-              >
-                Hap kursin
-              </Link>
-            )}
-          </div>
-        </article>
-      ))}
-    </div>
-  );
-}
-
-function CourseProgressList({ courses }) {
-  if (!courses?.length) {
-    return (
-      <EmptyState>
-        Ende nuk je regjistruar në një kurs.{" "}
-        <Link to="/courses" className="dashboard-text-link">
-          Eksploro kurset
-        </Link>
-      </EmptyState>
-    );
-  }
-
-  return (
-    <div className="dashboard-course-grid">
-      {courses.map((course) => (
-        <article className="dashboard-course-card" key={course.CourseID}>
-          <div className="dashboard-course-card-top">
-            <span className="dashboard-course-mark" aria-hidden="true">
-              {course.CourseTitle?.charAt(0)?.toUpperCase() || "K"}
-            </span>
-            <span className="dashboard-course-percent">{course.progress}%</span>
-          </div>
-          <h3>{course.CourseTitle}</h3>
-          <p>
-            {course.completedLessons} nga {course.totalLessons} mësime të
-            përfunduara
-          </p>
-          <div
-            className="progress dashboard-progress"
-            role="progressbar"
-            aria-label={`Progresi në kursin ${course.CourseTitle}`}
-            aria-valuenow={course.progress}
-            aria-valuemin="0"
-            aria-valuemax="100"
-          >
-            <div
-              className="progress-bar"
-              style={{ width: `${course.progress}%` }}
-            />
-          </div>
-          <Link
-            to={`/courses/${course.CourseID}`}
-            className="dashboard-text-link"
-          >
-            Vazhdo kursin <span aria-hidden="true">→</span>
-          </Link>
-        </article>
-      ))}
-    </div>
-  );
-}
-
-function InstructorCourseList({ courses }) {
-  if (!courses?.length) {
-    return (
-      <EmptyState>
-        Nuk ke kurse aktive.{" "}
-        <Link to="/courses" className="dashboard-text-link">
-          Krijo kurs
-        </Link>
-      </EmptyState>
-    );
-  }
-
-  return (
-    <div className="dashboard-course-grid">
-      {courses.map((course) => (
-        <article className="dashboard-course-card" key={course.CourseID}>
-          <div className="dashboard-course-card-top">
-            <span className="dashboard-course-mark" aria-hidden="true">
-              {course.Title?.charAt(0)?.toUpperCase() || "K"}
-            </span>
-            {Number(course.UngradedSubmissions) > 0 && (
-              <span className="dashboard-count-badge">
-                {course.UngradedSubmissions} për vlerësim
-              </span>
-            )}
-          </div>
-          <h3>{course.Title}</h3>
-          <p>
-            {course.Students} studentë · {course.Assignments} detyra
-          </p>
-          <Link
-            to={`/courses/${course.CourseID}`}
-            className="dashboard-text-link"
-          >
-            Menaxho kursin <span aria-hidden="true">→</span>
-          </Link>
-        </article>
-      ))}
-    </div>
-  );
-}
-
-function AdminCourseList({ courses }) {
-  if (!courses?.length) {
-    return <EmptyState>Nuk ka kurse aktive për momentin.</EmptyState>;
-  }
-
-  return (
-    <div className="dashboard-list">
-      {courses.map((course) => (
-        <article className="dashboard-list-item" key={course.CourseID}>
-          <span className="dashboard-course-mark dashboard-course-mark-small">
-            {course.Title?.charAt(0)?.toUpperCase() || "K"}
-          </span>
-          <div className="dashboard-list-content">
-            <h3>{course.Title}</h3>
-            <p>
-              {course.InstructorName} · {course.Students} studentë ·{" "}
-              {course.Assignments} detyra
-            </p>
-          </div>
-          <div className="dashboard-list-meta">
-            <span>{formatDate(course.CreatedAt)}</span>
             <Link
-              to={`/courses/${course.CourseID}`}
-              className="dashboard-text-link"
+              to={
+                primaryCourse
+                  ? `/courses/${primaryCourse.CourseID}`
+                  : "/courses"
+              }
+              className="btn btn-light fw-semibold text-dark px-4 py-2 rounded-3 shadow-sm"
+              style={{ fontSize: "0.85rem" }}
             >
-              Shiko kursin
+              {primaryCourse ? "Continue Watching" : "Explore Courses"}
             </Link>
           </div>
-        </article>
-      ))}
+        </div>
+
+        {/* Recent Materials Section */}
+        <div className="mb-4">
+          <Section
+            title="Recent materials"
+            description="Materials added to your courses recently."
+          >
+            <RecentMaterialList materials={dashboard.recentMaterials} />
+          </Section>
+        </div>
+
+        {/* My Learning Progress Grid */}
+        <div className="mb-4">
+          <Section
+            title="My learning progress"
+            description="Pick up where you left off in an enrolled course."
+            action={
+              <Link to="/my-courses" className="dashboard-text-link">
+                All courses
+              </Link>
+            }
+          >
+            <CourseList
+              courses={dashboard.courses}
+              emptyText="You’re not enrolled in a course yet. Explore courses to get started."
+            />
+          </Section>
+        </div>
+      </div>
+
+      {/* Right Column */}
+      <div className="col-lg-4">
+        {/* Upcoming Quizzes Card */}
+        <div className="mb-4">
+          <Section
+            title="Upcoming quizzes"
+            description="Available quizzes in your courses."
+          >
+            <UpcomingQuizList quizzes={dashboard.upcomingQuizzes} />
+          </Section>
+        </div>
+
+        {/* Assignments Due Today Card */}
+        <div className="mb-4">
+          <Section
+            title="Assignments due today"
+            description="Stay on top of today’s deadlines."
+          >
+            <AssignmentList
+              items={dashboard.dueToday}
+              status="today"
+              emptyText="No assignments are due today. You’re nailing it!"
+            />
+          </Section>
+        </div>
+      </div>
     </div>
   );
 }
@@ -337,10 +444,10 @@ function Dashboard() {
     try {
       const response = await api.get("/dashboard");
       setDashboard(response.data);
-    } catch (err) {
+    } catch (requestError) {
       setError(
-        err.response?.data?.message ||
-          "Nuk u arrit të ngarkohen të dhënat e dashboard-it.",
+        requestError.response?.data?.message ||
+          "Failed to load dashboard data.",
       );
     } finally {
       setLoading(false);
@@ -348,211 +455,150 @@ function Dashboard() {
   }, []);
 
   useEffect(() => {
-    loadDashboard();
-  }, [loadDashboard]);
+    let active = true;
+
+    api
+      .get("/dashboard")
+      .then((response) => {
+        if (active) setDashboard(response.data);
+      })
+      .catch((requestError) => {
+        if (active) {
+          setError(
+            requestError.response?.data?.message ||
+              "Failed to load dashboard data.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const role = dashboard?.role || user?.role;
   const roleContent = roleDetails[role];
   const statCards = statisticDetails[role] || [];
 
   return (
-    <>
-      <main className="dashboard-page">
-        <div className="container dashboard-container">
-          <header className="dashboard-hero">
-            <div>
-              <span className="dashboard-eyebrow">
-                {role === "Student"
-                  ? "HAPËSIRA E STUDENTIT"
-                  : role === "Instructor"
-                    ? "HAPËSIRA E INSTRUKTORIT"
-                    : "ADMINISTRIMI I PLATFORMËS"}
-              </span>
-              <h1>
-                {roleContent?.title || "Dashboard"}
-                {user?.firstName ? `, ${user.firstName}` : ""}
-              </h1>
-              <p>
-                {roleContent?.description ||
-                  "Mirë se erdhe në platformën e mësimit online."}
-              </p>
-            </div>
-            <Link to="/courses" className="btn dashboard-primary-button">
-              {role === "Instructor" || role === "Admin"
-                ? "Menaxho kurset"
-                : "Eksploro kurset"}
-              <span aria-hidden="true">→</span>
-            </Link>
-          </header>
-
-          {loading && (
-            <div className="dashboard-loading" role="status">
-              <span className="spinner-border spinner-border-sm" />
-              Duke ngarkuar dashboard-in...
-            </div>
-          )}
-
-          {!loading && error && (
-            <div className="alert alert-danger dashboard-error" role="alert">
-              <span>{error}</span>
-              <button
-                type="button"
-                className="btn btn-sm btn-outline-danger"
-                onClick={loadDashboard}
-              >
-                Provo përsëri
-              </button>
-            </div>
-          )}
-
-          {!loading && dashboard && (
-            <>
-              <section
-                className="dashboard-stat-grid"
-                aria-label="Statistikat kryesore"
-              >
-                {statCards.map((card) => (
-                  <StatCard
-                    key={card.key}
-                    label={card.label}
-                    value={dashboard.statistics?.[card.key]}
-                    icon={card.icon}
-                    tone={card.tone}
-                  />
-                ))}
-              </section>
-
-              {role === "Student" && (
-                <>
-                  <Section
-                    title="Progresi në kurset e mia"
-                    description="Vazhdo aty ku e ke lënë."
-                    action={
-                      <Link to="/my-courses" className="dashboard-text-link">
-                        Të gjitha kurset
-                      </Link>
-                    }
-                    className="dashboard-section-spaced"
-                  >
-                    <CourseProgressList courses={dashboard.courses} />
-                  </Section>
-
-                  <div className="dashboard-two-column">
-                    <Section
-                      title="Afati sot"
-                      description="Detyrat që duhet t’i dorëzosh sot."
-                    >
-                      <AssignmentList
-                        items={dashboard.dueToday}
-                        status="today"
-                        emptyText="Nuk ke detyra me afat sot."
-                      />
-                    </Section>
-                    <Section
-                      title="Afate të ardhshme"
-                      description="Planifiko kohën për detyrat e radhës."
-                    >
-                      <AssignmentList
-                        items={dashboard.upcomingAssignments}
-                        status="upcoming"
-                        emptyText="Nuk ka detyra me afat të ardhshëm."
-                      />
-                    </Section>
-                    <Section
-                      title="Afati ka kaluar"
-                      description="Detyra të pambaruara me afat të kaluar."
-                    >
-                      <AssignmentList
-                        items={dashboard.overdueAssignments}
-                        status="overdue"
-                        emptyText="Nuk ke detyra të vonuara."
-                      />
-                    </Section>
-                    <Section
-                      title="Pa afat të caktuar"
-                      description="Detyra që presin dorëzimin tënd."
-                    >
-                      <AssignmentList
-                        items={dashboard.noDeadlineAssignments}
-                        status="upcoming"
-                        emptyText="Nuk ke detyra pa afat."
-                      />
-                    </Section>
-                  </div>
-
-                  <Section
-                    title="Dorëzimet e mia"
-                    description="Dorëzimet e fundit dhe vlerësimet e tyre."
-                    className="dashboard-section-spaced"
-                  >
-                    <SubmissionList
-                      items={dashboard.recentSubmissions}
-                      emptyText="Ende nuk ke dorëzuar detyra."
-                    />
-                  </Section>
-                </>
-              )}
-
-              {role === "Instructor" && (
-                <>
-                  <Section
-                    title="Kurset e mia"
-                    description="Studentët, detyrat dhe gjendja e vlerësimit."
-                    action={
-                      <Link to="/courses" className="dashboard-text-link">
-                        Krijo ose ndrysho kurs
-                      </Link>
-                    }
-                    className="dashboard-section-spaced"
-                  >
-                    <InstructorCourseList courses={dashboard.courses} />
-                  </Section>
-                  <Section
-                    title="Dorëzime për vlerësim"
-                    description="Dorëzimet e fundit që presin notë dhe koment."
-                    className="dashboard-section-spaced"
-                  >
-                    <SubmissionList
-                      items={dashboard.ungradedSubmissions}
-                      instructorView
-                      emptyText="Nuk ka dorëzime që presin vlerësim."
-                    />
-                  </Section>
-                </>
-              )}
-
-              {role === "Admin" && (
-                <>
-                  <Section
-                    title="Kurset e fundit"
-                    description="Kurse aktive dhe aktiviteti i tyre."
-                    action={
-                      <Link to="/courses" className="dashboard-text-link">
-                        Shiko kurset
-                      </Link>
-                    }
-                    className="dashboard-section-spaced"
-                  >
-                    <AdminCourseList courses={dashboard.recentCourses} />
-                  </Section>
-                  <Section
-                    title="Dorëzime pa vlerësim"
-                    description="Dorëzimet që kërkojnë vëmendje."
-                    className="dashboard-section-spaced"
-                  >
-                    <SubmissionList
-                      items={dashboard.ungradedSubmissions}
-                      instructorView
-                      emptyText="Të gjitha dorëzimet janë vlerësuar."
-                    />
-                  </Section>
-                </>
-              )}
-            </>
-          )}
+    <main className="dashboard-page bg-light min-vh-100 py-4 px-3 px-md-5">
+      <div className="container-fluid" style={{ maxWidth: "1200px" }}>
+        <div className="mb-4">
+          <h1 className="fw-bold text-dark fs-3 mb-1">
+            {roleContent?.title || "Welcome back"}
+            {user?.firstName ? `, ${user.firstName}!` : "!"} 👋
+          </h1>
+          <p className="text-muted small">
+            {roleContent?.description ||
+              "Your learning and teaching overview at a glance."}
+          </p>
         </div>
-      </main>
-    </>
+
+        {loading && (
+          <div className="text-center py-5" role="status">
+            <span className="spinner-border spinner-border-sm text-primary" />
+            <span className="ms-2 text-muted">Loading dashboard...</span>
+          </div>
+        )}
+
+        {!loading && error && (
+          <div
+            className="alert alert-danger py-2 px-3 small d-flex justify-content-between align-items-center"
+            role="alert"
+          >
+            <span>{error}</span>
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-danger"
+              onClick={loadDashboard}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!loading && dashboard && role === "Student" && (
+          <StudentDashboard dashboard={dashboard} />
+        )}
+
+        {!loading && dashboard && role !== "Student" && (
+          <>
+            <section className="dashboard-stat-grid mb-4">
+              {statCards.map((card) => (
+                <StatCard
+                  key={card.key}
+                  label={card.label}
+                  value={dashboard.statistics?.[card.key]}
+                  icon={card.icon}
+                  tone={card.tone}
+                />
+              ))}
+            </section>
+
+            {role === "Instructor" && (
+              <div className="dashboard-two-column">
+                <Section
+                  title="My courses"
+                  description="Manage your active courses and see enrollment activity."
+                  action={
+                    <Link to="/courses" className="dashboard-text-link">
+                      Manage courses
+                    </Link>
+                  }
+                >
+                  <CourseList
+                    courses={dashboard.courses}
+                    instructorView
+                    emptyText="You don’t have any active courses yet."
+                  />
+                </Section>
+                <Section
+                  title="Pending submissions"
+                  description="Student work waiting for review."
+                >
+                  <SubmissionList
+                    items={dashboard.ungradedSubmissions}
+                    emptyText="No pending submissions. You’re all caught up!"
+                  />
+                </Section>
+              </div>
+            )}
+
+            {role === "Admin" && (
+              <div className="dashboard-two-column">
+                <Section
+                  title="Recent courses"
+                  description="Active courses on the platform."
+                  action={
+                    <Link to="/courses" className="dashboard-text-link">
+                      All courses
+                    </Link>
+                  }
+                >
+                  <CourseList
+                    courses={dashboard.recentCourses}
+                    instructorView
+                    emptyText="There are no active courses."
+                  />
+                </Section>
+                <Section
+                  title="Ungraded submissions"
+                  description="Submissions needing attention."
+                >
+                  <SubmissionList
+                    items={dashboard.ungradedSubmissions}
+                    emptyText="All submissions are graded."
+                  />
+                </Section>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </main>
   );
 }
 

@@ -155,8 +155,14 @@ async function getStudentDashboard(studentId) {
   const pool = await connectDB();
   const request = () => pool.request().input("StudentID", sql.Int, studentId);
 
-  const [statisticsResult, progressResult, assignmentsResult, submissionsResult] =
-    await Promise.all([
+  const [
+    statisticsResult,
+    progressResult,
+    assignmentsResult,
+    submissionsResult,
+    quizzesResult,
+    materialsResult,
+  ] = await Promise.all([
       request().query(`
         SELECT
           (SELECT COUNT(*)
@@ -314,6 +320,105 @@ async function getStudentDashboard(studentId) {
         WHERE s.StudentID = @StudentID
         ORDER BY s.SubmittedAt DESC
       `),
+      request().query(`
+        SELECT
+          quiz.QuizID,
+          quiz.CourseID,
+          quiz.LessonID,
+          quiz.Title,
+          quiz.DurationMinutes,
+          quiz.ScheduledStartAt,
+          course.Title AS CourseTitle,
+          CASE
+            WHEN quiz.ScheduledStartAt IS NOT NULL
+              AND quiz.ScheduledStartAt > SYSUTCDATETIME()
+            THEN 'Scheduled'
+            WHEN activeAttempt.AttemptID IS NOT NULL
+            THEN 'InProgress'
+            ELSE 'Available'
+          END AS QuizStatus,
+          activeAttempt.AttemptID
+        FROM dbo.Quizzes AS quiz
+        INNER JOIN dbo.Courses AS course
+          ON course.CourseID = quiz.CourseID
+         AND course.Status = 'Active'
+        INNER JOIN dbo.Enrollments AS enrollment
+          ON enrollment.CourseID = quiz.CourseID
+         AND enrollment.StudentID = @StudentID
+         AND enrollment.Status = 'Active'
+        OUTER APPLY (
+          SELECT TOP (1)
+            attempt.AttemptID,
+            attempt.StartedAt,
+            attempt.CompletedAt
+          FROM dbo.QuizAttempts AS attempt
+          WHERE attempt.QuizID = quiz.QuizID
+            AND attempt.StudentID = @StudentID
+          ORDER BY attempt.StartedAt DESC, attempt.AttemptID DESC
+        ) AS activeAttempt
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM dbo.QuizAttempts AS completedAttempt
+          WHERE completedAttempt.QuizID = quiz.QuizID
+            AND completedAttempt.StudentID = @StudentID
+            AND completedAttempt.CompletedAt IS NOT NULL
+        )
+          AND (
+            quiz.ScheduledStartAt IS NULL
+            OR quiz.DurationMinutes IS NULL
+            OR DATEADD(
+              MINUTE,
+              quiz.DurationMinutes,
+              quiz.ScheduledStartAt
+            ) > SYSUTCDATETIME()
+          )
+          AND (
+            activeAttempt.AttemptID IS NULL
+            OR quiz.DurationMinutes IS NULL
+            OR DATEADD(
+              MINUTE,
+              quiz.DurationMinutes,
+              COALESCE(quiz.ScheduledStartAt, activeAttempt.StartedAt)
+            ) > SYSUTCDATETIME()
+          )
+        ORDER BY
+          CASE
+            WHEN quiz.ScheduledStartAt IS NULL THEN 1
+            ELSE 0
+          END,
+          quiz.ScheduledStartAt,
+          quiz.CreatedAt DESC
+      `),
+      request().query(`
+        SELECT
+          material.MaterialID,
+          material.LessonID,
+          lesson.CourseID,
+          material.Title,
+          material.FileURL,
+          material.MaterialType,
+          material.CreatedAt,
+          lesson.Title AS LessonTitle,
+          course.Title AS CourseTitle,
+          instructor.FirstName + ' ' + instructor.LastName AS InstructorName
+        FROM dbo.Materials AS material
+        INNER JOIN dbo.Lessons AS lesson
+          ON lesson.LessonID = material.LessonID
+        INNER JOIN dbo.Courses AS course
+          ON course.CourseID = lesson.CourseID
+         AND course.Status = 'Active'
+        INNER JOIN dbo.Users AS instructor
+          ON instructor.UserID = course.InstructorID
+         AND instructor.Role = 'Instructor'
+         AND instructor.Status = 'Active'
+        INNER JOIN dbo.Enrollments AS enrollment
+          ON enrollment.CourseID = course.CourseID
+         AND enrollment.StudentID = @StudentID
+         AND enrollment.Status = 'Active'
+        WHERE material.CreatedAt >= DATEADD(HOUR, -24, SYSDATETIME())
+          AND material.CreatedAt <= SYSDATETIME()
+        ORDER BY material.CreatedAt DESC
+      `),
     ]);
 
   const courses = progressResult.recordset.map((course) => {
@@ -347,6 +452,8 @@ async function getStudentDashboard(studentId) {
       (item) => item.DeadlineStatus === "NoDeadline",
     ),
     recentSubmissions: submissionsResult.recordset,
+    upcomingQuizzes: quizzesResult.recordset,
+    recentMaterials: materialsResult.recordset,
   };
 }
 

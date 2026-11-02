@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import Swal from "sweetalert2";
 
 import api from "../api/axios";
@@ -8,6 +8,7 @@ import CourseQuizzes from "../components/CourseQuizzes";
 
 function CourseDetails() {
   const { courseId } = useParams();
+  const location = useLocation();
   const { user } = useAuth();
   const activeCourseId = useRef(courseId);
 
@@ -101,6 +102,36 @@ function CourseDetails() {
   useEffect(() => {
     loadLessons();
   }, [courseId]);
+
+  useEffect(() => {
+    const targetLessonId = new URLSearchParams(location.search).get("lesson");
+    if (
+      !targetLessonId ||
+      !lessons.some(
+        (lesson) =>
+          Number(lesson.LessonID ?? lesson.lessonId) ===
+          Number(targetLessonId),
+      ) ||
+      materials[targetLessonId]
+    ) {
+      return;
+    }
+
+    loadMaterials(targetLessonId);
+  }, [lessons, location.search, materials]);
+
+  useEffect(() => {
+    if (!location.hash.startsWith("#material-")) return;
+
+    const materialId = location.hash.slice("#material-".length);
+    const lessonId = new URLSearchParams(location.search).get("lesson");
+    if (!materialId || !lessonId || !materials[lessonId]) return;
+
+    document.getElementById(`material-${materialId}`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, [location.hash, location.search, materials]);
 
   async function loadStudentProgress() {
     if (user?.role !== "Student") return;
@@ -2006,6 +2037,7 @@ function CourseDetails() {
                         <ul className="mb-0">
                           {materials[lessonId].map((material) => (
                             <li
+                              id={`material-${material.MaterialID ?? material.materialId}`}
                               key={material.MaterialID ?? material.materialId}
                             >
                               <button
