@@ -10,6 +10,7 @@ const {
   updateQuizWithQuestions,
   deleteQuiz,
   getStudentAttempts,
+  getQuizResults,
 } = require("../models/quizModel");
 
 const { getCourseById } = require("../models/courseModel");
@@ -353,6 +354,40 @@ async function removeQuiz(req, res) {
   }
 }
 
+async function quizResults(req, res) {
+  try {
+    const quizId = Number(req.params.quizId);
+    if (!Number.isInteger(quizId) || quizId <= 0) {
+      return res.status(400).json({ message: "Invalid quiz ID." });
+    }
+
+    const quiz = await getQuizById(quizId);
+    if (!quiz) return res.status(404).json({ message: "Quiz not found." });
+
+    const course = await getCourseById(quiz.CourseID);
+    if (!course || !(await canManageCourse(course, req.user))) {
+      return res.status(403).json({
+        message: "You cannot view results for this quiz.",
+      });
+    }
+
+    const students = await getQuizResults(quizId);
+    return res.status(200).json({
+      quiz: {
+        quizId: quiz.QuizID,
+        title: quiz.Title,
+        courseId: quiz.CourseID,
+      },
+      students,
+    });
+  } catch (error) {
+    console.error("Quiz results error:", error.message);
+    return res.status(500).json({
+      message: "Failed to retrieve quiz results.",
+    });
+  }
+}
+
 async function takeQuiz(req, res) {
   try {
     const quizId = Number(req.params.quizId);
@@ -652,6 +687,7 @@ module.exports = {
   getQuizForInstructor,
   editQuiz,
   removeQuiz,
+  quizResults,
   takeQuiz,
   submitQuiz,
   myQuizResults,

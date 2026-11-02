@@ -678,6 +678,54 @@ async function getStudentAttempts(studentId) {
   return result.recordset;
 }
 
+async function getQuizResults(quizId) {
+  const pool = await connectDB();
+
+  const result = await pool.request().input("quizId", sql.Int, quizId).query(`
+    SELECT
+      student.UserID AS StudentID,
+      student.FirstName,
+      student.LastName,
+      student.Email,
+      COALESCE(attemptSummary.AttemptCount, 0) AS AttemptCount,
+      COALESCE(latestSubmission.Score, CAST(0 AS DECIMAL(9, 4))) AS Score,
+      latestSubmission.CompletedAt,
+      CASE
+        WHEN latestSubmission.AttemptID IS NOT NULL THEN N'Submitted'
+        WHEN COALESCE(attemptSummary.AttemptCount, 0) = 0 THEN N'Absent'
+        ELSE N'Incomplete'
+      END AS ResultStatus
+    FROM dbo.Quizzes AS quiz
+    INNER JOIN dbo.Enrollments AS enrollment
+      ON enrollment.CourseID = quiz.CourseID
+     AND enrollment.Status = N'Active'
+    INNER JOIN dbo.Users AS student
+      ON student.UserID = enrollment.StudentID
+     AND student.Role = N'Student'
+    OUTER APPLY (
+      SELECT COUNT(*) AS AttemptCount
+      FROM dbo.QuizAttempts AS attempt
+      WHERE attempt.QuizID = quiz.QuizID
+        AND attempt.StudentID = student.UserID
+    ) AS attemptSummary
+    OUTER APPLY (
+      SELECT TOP (1)
+        attempt.AttemptID,
+        attempt.Score,
+        attempt.CompletedAt
+      FROM dbo.QuizAttempts AS attempt
+      WHERE attempt.QuizID = quiz.QuizID
+        AND attempt.StudentID = student.UserID
+        AND attempt.Score IS NOT NULL
+      ORDER BY attempt.StartedAt DESC, attempt.AttemptID DESC
+    ) AS latestSubmission
+    WHERE quiz.QuizID = @quizId
+    ORDER BY student.LastName, student.FirstName, student.UserID
+  `);
+
+  return result.recordset;
+}
+
 module.exports = {
   getQuizzesByCourse,
   createQuizWithQuestions,
@@ -690,4 +738,5 @@ module.exports = {
   updateQuizWithQuestions,
   deleteQuiz,
   getStudentAttempts,
+  getQuizResults,
 };

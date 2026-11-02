@@ -6,6 +6,7 @@ const {
   getQuizForInstructor,
   editQuiz,
   removeQuiz,
+  quizResults,
   takeQuiz,
   submitQuiz,
   myQuizResults,
@@ -58,6 +59,13 @@ router.delete(
   authenticateToken,
   authorizeRoles("Admin", "Instructor"),
   removeQuiz,
+);
+
+router.get(
+  "/:quizId/results",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor"),
+  quizResults,
 );
 
 router.get(
