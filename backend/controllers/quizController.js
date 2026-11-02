@@ -2,10 +2,13 @@ const {
   getQuizzesByCourse,
   createQuizWithQuestions,
   getQuizById,
+  getQuizForManagement,
   getQuestionsForStudent,
   getQuestionsForGrading,
   getOrCreateQuizAttempt,
   completeQuizAttempt,
+  updateQuizWithQuestions,
+  deleteQuiz,
   getStudentAttempts,
 } = require("../models/quizModel");
 
@@ -15,6 +18,89 @@ const { connectDB } = require("../config/db");
 const sql = require("mssql");
 
 const QUIZ_DURATIONS_MINUTES = [5, 10, 15, 20];
+
+function parseQuizInput(body) {
+  body = body && typeof body === "object" ? body : {};
+  const { title, description, lessonId, questions, durationMinutes } = body;
+  const parsedDurationMinutes =
+    durationMinutes == null || durationMinutes === ""
+      ? null
+      : Number(durationMinutes);
+
+  if (
+    (parsedDurationMinutes != null &&
+      !QUIZ_DURATIONS_MINUTES.includes(parsedDurationMinutes)) ||
+    (body.scheduledStartAt != null &&
+      typeof body.scheduledStartAt !== "string")
+  ) {
+    return { error: "Select a valid quiz duration and start date/time." };
+  }
+
+  let scheduledStartAt = null;
+  if (body.scheduledStartAt) {
+    scheduledStartAt = new Date(body.scheduledStartAt);
+
+    if (
+      Number.isNaN(scheduledStartAt.getTime()) ||
+      scheduledStartAt.getTime() <= Date.now() ||
+      parsedDurationMinutes == null
+    ) {
+      return {
+        error:
+          "A scheduled quiz needs a future start date/time and a preset duration.",
+      };
+    }
+  }
+
+  const questionError = validateQuizQuestions(questions);
+
+  if (
+    typeof title !== "string" ||
+    !title.trim() ||
+    title.trim().length > 200 ||
+    questionError
+  ) {
+    return {
+      error:
+        questionError ||
+        "A valid quiz title (up to 200 characters) and questions are required.",
+    };
+  }
+
+  return {
+    value: {
+      title: title.trim(),
+      description:
+        typeof description === "string" ? description.trim() : null,
+      lessonId,
+      durationMinutes: parsedDurationMinutes,
+      scheduledStartAt,
+      questions: questions.map((question) => ({
+        questionText: question.questionText.trim(),
+        options: question.options.map((option) => ({
+          optionText: option.optionText.trim(),
+          isCorrect: option.isCorrect,
+        })),
+      })),
+    },
+  };
+}
+
+async function validateLessonForCourse(lessonId, courseId) {
+  if (lessonId == null || lessonId === "") return { lessonId: null };
+
+  const parsedLessonId = Number(lessonId);
+  if (!Number.isInteger(parsedLessonId) || parsedLessonId <= 0) {
+    return { error: "Invalid lesson ID." };
+  }
+
+  const lesson = await getLessonById(parsedLessonId);
+  if (!lesson || Number(lesson.CourseID) !== courseId) {
+    return { error: "The lesson must belong to this course." };
+  }
+
+  return { lessonId: parsedLessonId };
+}
 
 async function hasEnrollment(studentId, courseId) {
   const pool = await connectDB();
@@ -117,28 +203,15 @@ async function listQuizzes(req, res) {
 async function addQuiz(req, res) {
   try {
     const courseId = Number(req.params.courseId);
-    const { title, description, lessonId, questions, durationMinutes } =
-      req.body;
-    const questionError = validateQuizQuestions(questions);
-    const parsedDurationMinutes =
-      durationMinutes == null || durationMinutes === ""
-        ? null
-        : Number(durationMinutes);
+    const parsed = parseQuizInput(req.body);
 
     if (
       !Number.isInteger(courseId) ||
       courseId <= 0 ||
-      typeof title !== "string" ||
-      !title.trim() ||
-      title.trim().length > 200 ||
-      (parsedDurationMinutes != null &&
-        !QUIZ_DURATIONS_MINUTES.includes(parsedDurationMinutes)) ||
-      questionError
+      parsed.error
     ) {
       return res.status(400).json({
-        message:
-          questionError ||
-          "A valid course ID, quiz title, and optional preset duration are required.",
+        message: parsed.error || "Invalid course ID.",
       });
     }
 
@@ -156,39 +229,14 @@ async function addQuiz(req, res) {
       });
     }
 
-    let parsedLessonId = null;
-    if (lessonId != null && lessonId !== "") {
-      parsedLessonId = Number(lessonId);
-
-      if (!Number.isInteger(parsedLessonId) || parsedLessonId <= 0) {
-        return res.status(400).json({
-          message: "Invalid lesson ID.",
-        });
-      }
-
-      const lesson = await getLessonById(parsedLessonId);
-
-      if (!lesson || Number(lesson.CourseID) !== courseId) {
-        return res.status(400).json({
-          message: "The lesson must belong to this course.",
-        });
-      }
+    const lesson = await validateLessonForCourse(parsed.value.lessonId, courseId);
+    if (lesson.error) {
+      return res.status(400).json({ message: lesson.error });
     }
 
-    const normalizedQuestions = questions.map((question) => ({
-      questionText: question.questionText.trim(),
-      options: question.options.map((option) => ({
-        optionText: option.optionText.trim(),
-        isCorrect: option.isCorrect,
-      })),
-    }));
-
     const quiz = await createQuizWithQuestions(courseId, {
-      lessonId: parsedLessonId,
-      title: title.trim(),
-      description: typeof description === "string" ? description.trim() : null,
-      durationMinutes: parsedDurationMinutes,
-      questions: normalizedQuestions,
+      ...parsed.value,
+      lessonId: lesson.lessonId,
     });
 
     return res.status(201).json({
@@ -200,6 +248,108 @@ async function addQuiz(req, res) {
     return res.status(500).json({
       message: "Failed to create quiz.",
     });
+  }
+}
+
+async function getQuizForInstructor(req, res) {
+  try {
+    const quizId = Number(req.params.quizId);
+    if (!Number.isInteger(quizId) || quizId <= 0) {
+      return res.status(400).json({ message: "Invalid quiz ID." });
+    }
+
+    const quiz = await getQuizForManagement(quizId);
+    if (!quiz) return res.status(404).json({ message: "Quiz not found." });
+
+    const course = await getCourseById(quiz.CourseID);
+    if (!course || !(await canManageCourse(course, req.user))) {
+      return res.status(403).json({
+        message: "You cannot manage this quiz.",
+      });
+    }
+
+    return res.status(200).json({ quiz });
+  } catch (error) {
+    console.error("Get quiz for management error:", error.message);
+    return res.status(500).json({ message: "Failed to retrieve quiz." });
+  }
+}
+
+async function editQuiz(req, res) {
+  try {
+    const quizId = Number(req.params.quizId);
+    const parsed = parseQuizInput(req.body);
+    if (!Number.isInteger(quizId) || quizId <= 0 || parsed.error) {
+      return res.status(400).json({
+        message: parsed.error || "Invalid quiz ID.",
+      });
+    }
+
+    const quiz = await getQuizById(quizId);
+    if (!quiz) return res.status(404).json({ message: "Quiz not found." });
+
+    const course = await getCourseById(quiz.CourseID);
+    if (!course || !(await canManageCourse(course, req.user))) {
+      return res.status(403).json({
+        message: "You cannot manage this quiz.",
+      });
+    }
+
+    const lesson = await validateLessonForCourse(
+      parsed.value.lessonId,
+      quiz.CourseID,
+    );
+    if (lesson.error) {
+      return res.status(400).json({ message: lesson.error });
+    }
+
+    const result = await updateQuizWithQuestions(quizId, {
+      ...parsed.value,
+      lessonId: lesson.lessonId,
+    });
+
+    if (result.notFound) {
+      return res.status(404).json({ message: "Quiz not found." });
+    }
+    if (result.hasAttempts) {
+      return res.status(409).json({
+        message:
+          "This quiz cannot be edited after a student has started an attempt.",
+      });
+    }
+
+    return res.status(200).json({ message: "Quiz updated successfully." });
+  } catch (error) {
+    console.error("Update quiz error:", error.message);
+    return res.status(500).json({ message: "Failed to update quiz." });
+  }
+}
+
+async function removeQuiz(req, res) {
+  try {
+    const quizId = Number(req.params.quizId);
+    if (!Number.isInteger(quizId) || quizId <= 0) {
+      return res.status(400).json({ message: "Invalid quiz ID." });
+    }
+
+    const quiz = await getQuizById(quizId);
+    if (!quiz) return res.status(404).json({ message: "Quiz not found." });
+
+    const course = await getCourseById(quiz.CourseID);
+    if (!course || !(await canManageCourse(course, req.user))) {
+      return res.status(403).json({
+        message: "You cannot manage this quiz.",
+      });
+    }
+
+    if (!(await deleteQuiz(quizId))) {
+      return res.status(404).json({ message: "Quiz not found." });
+    }
+
+    return res.status(200).json({ message: "Quiz deleted successfully." });
+  } catch (error) {
+    console.error("Delete quiz error:", error.message);
+    return res.status(500).json({ message: "Failed to delete quiz." });
   }
 }
 
@@ -236,6 +386,9 @@ async function takeQuiz(req, res) {
 
     const durationMinutes =
       quiz.DurationMinutes == null ? null : Number(quiz.DurationMinutes);
+    const scheduledStartAt = quiz.ScheduledStartAt
+      ? new Date(quiz.ScheduledStartAt)
+      : null;
 
     if (
       durationMinutes != null &&
@@ -246,12 +399,29 @@ async function takeQuiz(req, res) {
       });
     }
 
+    if (scheduledStartAt && durationMinutes == null) {
+      return res.status(500).json({
+        message: "This scheduled quiz does not have a valid duration.",
+      });
+    }
+
     const attempt = await getOrCreateQuizAttempt(
       quizId,
       req.user.userId,
       durationMinutes,
+      scheduledStartAt,
     );
 
+    if (attempt.NotStarted) {
+      return res.status(425).json({
+        message: "This quiz is not open yet.",
+      });
+    }
+    if (attempt.WindowEnded) {
+      return res.status(410).json({
+        message: "The scheduled quiz window has ended.",
+      });
+    }
     if (attempt.AlreadyAttempted) {
       return res.status(409).json({
         message:
@@ -267,7 +437,9 @@ async function takeQuiz(req, res) {
         questionCount: questions.length,
         totalPoints: 100,
         durationMinutes,
+        scheduledStartAt: scheduledStartAt?.toISOString() ?? null,
         attemptId: attempt.AttemptID,
+        serverNowMs: Number(attempt.ServerNowMs),
         expiresAtMs:
           attempt.ExpiresAtMs == null ? null : Number(attempt.ExpiresAtMs),
       },
@@ -328,6 +500,9 @@ async function submitQuiz(req, res) {
 
     const durationMinutes =
       quiz.DurationMinutes == null ? null : Number(quiz.DurationMinutes);
+    const scheduledStartAt = quiz.ScheduledStartAt
+      ? new Date(quiz.ScheduledStartAt)
+      : null;
 
     if (
       durationMinutes != null &&
@@ -428,6 +603,7 @@ async function submitQuiz(req, res) {
       quizId,
       req.user.userId,
       durationMinutes,
+      scheduledStartAt,
       score,
     );
 
@@ -473,6 +649,9 @@ async function myQuizResults(req, res) {
 module.exports = {
   listQuizzes,
   addQuiz,
+  getQuizForInstructor,
+  editQuiz,
+  removeQuiz,
   takeQuiz,
   submitQuiz,
   myQuizResults,

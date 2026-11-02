@@ -3,6 +3,9 @@ const express = require("express");
 const {
   listQuizzes,
   addQuiz,
+  getQuizForInstructor,
+  editQuiz,
+  removeQuiz,
   takeQuiz,
   submitQuiz,
   myQuizResults,
@@ -30,6 +33,34 @@ router.post(
 );
 
 router.get(
+  "/my-results",
+  authenticateToken,
+  authorizeRoles("Student"),
+  myQuizResults,
+);
+
+router.get(
+  "/:quizId",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor"),
+  getQuizForInstructor,
+);
+
+router.put(
+  "/:quizId",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor"),
+  editQuiz,
+);
+
+router.delete(
+  "/:quizId",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor"),
+  removeQuiz,
+);
+
+router.get(
   "/:quizId/take",
   authenticateToken,
   authorizeRoles("Student"),
@@ -41,13 +72,6 @@ router.post(
   authenticateToken,
   authorizeRoles("Student"),
   submitQuiz,
-);
-
-router.get(
-  "/my-results",
-  authenticateToken,
-  authorizeRoles("Student"),
-  myQuizResults,
 );
 
 module.exports = router;

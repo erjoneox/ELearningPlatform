@@ -14,6 +14,7 @@ async function getQuizzesByCourse(courseId) {
         q.Description,
         q.CreatedAt,
         q.DurationMinutes,
+        q.ScheduledStartAt,
         COUNT(DISTINCT question.QuestionID) AS QuestionCount
       FROM Quizzes q
       LEFT JOIN Questions question ON question.QuizID = q.QuizID
@@ -25,7 +26,8 @@ async function getQuizzesByCourse(courseId) {
         q.Title,
         q.Description,
         q.CreatedAt,
-        q.DurationMinutes
+        q.DurationMinutes,
+        q.ScheduledStartAt
       ORDER BY q.CreatedAt DESC
     `);
 
@@ -46,9 +48,17 @@ async function createQuizWithQuestions(courseId, data) {
       .input("title", sql.NVarChar(200), data.title)
       .input("description", sql.NVarChar(sql.MAX), data.description)
       .input("durationMinutes", sql.Int, data.durationMinutes)
+      .input("scheduledStartAt", sql.DateTime2(7), data.scheduledStartAt)
       .query(`
         INSERT INTO Quizzes
-          (CourseID, LessonID, Title, Description, DurationMinutes)
+          (
+            CourseID,
+            LessonID,
+            Title,
+            Description,
+            DurationMinutes,
+            ScheduledStartAt
+          )
         OUTPUT
           INSERTED.QuizID,
           INSERTED.CourseID,
@@ -56,9 +66,17 @@ async function createQuizWithQuestions(courseId, data) {
           INSERTED.Title,
           INSERTED.Description,
           INSERTED.CreatedAt,
-          INSERTED.DurationMinutes
+          INSERTED.DurationMinutes,
+          INSERTED.ScheduledStartAt
         VALUES
-          (@courseId, @lessonId, @title, @description, @durationMinutes)
+          (
+            @courseId,
+            @lessonId,
+            @title,
+            @description,
+            @durationMinutes,
+            @scheduledStartAt
+          )
       `);
 
     const quiz = quizResult.recordset[0];
@@ -115,12 +133,56 @@ async function getQuizById(quizId) {
       Title,
       Description,
       CreatedAt,
-      DurationMinutes
+      DurationMinutes,
+      ScheduledStartAt
     FROM Quizzes
     WHERE QuizID = @quizId
   `);
 
   return result.recordset[0] || null;
+}
+
+async function getQuizForManagement(quizId) {
+  const quiz = await getQuizById(quizId);
+
+  if (!quiz) return null;
+
+  const pool = await connectDB();
+  const result = await pool.request().input("quizId", sql.Int, quizId).query(`
+    SELECT
+      question.QuestionID,
+      question.QuestionText,
+      answerOption.OptionID,
+      answerOption.OptionText,
+      answerOption.IsCorrect
+    FROM dbo.Questions AS question
+    INNER JOIN dbo.QuestionOptions AS answerOption
+      ON answerOption.QuestionID = question.QuestionID
+    WHERE question.QuizID = @quizId
+    ORDER BY question.QuestionID, answerOption.OptionID
+  `);
+  const questions = new Map();
+
+  for (const row of result.recordset) {
+    if (!questions.has(row.QuestionID)) {
+      questions.set(row.QuestionID, {
+        questionId: row.QuestionID,
+        questionText: row.QuestionText,
+        options: [],
+      });
+    }
+
+    questions.get(row.QuestionID).options.push({
+      optionId: row.OptionID,
+      optionText: row.OptionText,
+      isCorrect: row.IsCorrect,
+    });
+  }
+
+  return {
+    ...quiz,
+    questions: [...questions.values()],
+  };
 }
 
 async function getQuestionsForStudent(quizId) {
@@ -180,7 +242,12 @@ async function getQuestionsForGrading(quizId) {
   return result.recordset;
 }
 
-async function getOrCreateQuizAttempt(quizId, studentId, durationMinutes) {
+async function getOrCreateQuizAttempt(
+  quizId,
+  studentId,
+  durationMinutes,
+  scheduledStartAt,
+) {
   const pool = await connectDB();
   const transaction = new sql.Transaction(pool);
 
@@ -190,11 +257,29 @@ async function getOrCreateQuizAttempt(quizId, studentId, durationMinutes) {
     const result = await new sql.Request(transaction)
       .input("quizId", sql.Int, quizId)
       .input("studentId", sql.Int, studentId)
-      .input("durationMinutes", sql.Int, durationMinutes).query(`
+      .input("durationMinutes", sql.Int, durationMinutes)
+      .input("scheduledStartAt", sql.DateTime2(7), scheduledStartAt).query(`
         DECLARE @AlreadyAttempted BIT = 0;
         DECLARE @AttemptID INT;
         DECLARE @StartedAt DATETIME2(7);
+        DECLARE @Now DATETIME2(7) = SYSUTCDATETIME();
 
+        IF @scheduledStartAt IS NOT NULL AND @Now < @scheduledStartAt
+        BEGIN
+          SELECT
+            CAST(0 AS BIT) AS AlreadyAttempted,
+            CAST(1 AS BIT) AS NotStarted,
+            CAST(0 AS BIT) AS WindowEnded,
+            CAST(NULL AS INT) AS AttemptID,
+            CAST(NULL AS BIGINT) AS ExpiresAtMs,
+            DATEDIFF_BIG(
+              MILLISECOND,
+              CONVERT(DATETIME2, '19700101'),
+              @Now
+            ) AS ServerNowMs;
+        END
+        ELSE
+        BEGIN
         IF EXISTS (
           SELECT 1
           FROM dbo.QuizAttempts WITH (UPDLOCK, HOLDLOCK)
@@ -213,13 +298,35 @@ async function getOrCreateQuizAttempt(quizId, studentId, durationMinutes) {
           AND CompletedAt IS NULL
         ORDER BY StartedAt DESC;
 
+        IF @scheduledStartAt IS NOT NULL
+          AND DATEADD(MINUTE, @durationMinutes, @scheduledStartAt) <= @Now
+        BEGIN
+          UPDATE dbo.QuizAttempts
+          SET CompletedAt = DATEADD(MINUTE, @durationMinutes, @scheduledStartAt)
+          WHERE AttemptID = @AttemptID
+            AND CompletedAt IS NULL;
+
+          IF @AttemptID IS NOT NULL
+            SET @AlreadyAttempted = 1;
+
+          SET @AttemptID = NULL;
+        END;
+
         IF @AlreadyAttempted = 0
           AND @AttemptID IS NOT NULL
           AND @durationMinutes IS NOT NULL
-          AND DATEADD(MINUTE, @durationMinutes, @StartedAt) <= SYSUTCDATETIME()
+          AND DATEADD(
+            MINUTE,
+            @durationMinutes,
+            COALESCE(@scheduledStartAt, @StartedAt)
+          ) <= @Now
         BEGIN
           UPDATE dbo.QuizAttempts
-          SET CompletedAt = DATEADD(MINUTE, @durationMinutes, @StartedAt)
+          SET CompletedAt = DATEADD(
+            MINUTE,
+            @durationMinutes,
+            COALESCE(@scheduledStartAt, @StartedAt)
+          )
           WHERE AttemptID = @AttemptID
             AND CompletedAt IS NULL;
 
@@ -227,7 +334,12 @@ async function getOrCreateQuizAttempt(quizId, studentId, durationMinutes) {
           SET @AlreadyAttempted = 1;
         END;
 
-        IF @AlreadyAttempted = 0 AND @AttemptID IS NULL
+        IF @AlreadyAttempted = 0
+          AND @AttemptID IS NULL
+          AND (
+            @scheduledStartAt IS NULL
+            OR DATEADD(MINUTE, @durationMinutes, @scheduledStartAt) > @Now
+          )
         BEGIN
           INSERT INTO dbo.QuizAttempts
             (QuizID, StudentID, Score, StartedAt, CompletedAt)
@@ -243,16 +355,38 @@ async function getOrCreateQuizAttempt(quizId, studentId, durationMinutes) {
 
         SELECT
           @AlreadyAttempted AS AlreadyAttempted,
+          CAST(0 AS BIT) AS NotStarted,
+          CAST(
+            CASE
+              WHEN @scheduledStartAt IS NOT NULL
+                AND DATEADD(MINUTE, @durationMinutes, @scheduledStartAt) <= @Now
+                AND @AttemptID IS NULL
+                AND @AlreadyAttempted = 0
+              THEN 1
+              ELSE 0
+            END
+            AS BIT
+          ) AS WindowEnded,
           @AttemptID AS AttemptID,
           CASE
             WHEN @AttemptID IS NOT NULL AND @durationMinutes IS NOT NULL
             THEN DATEDIFF_BIG(
               MILLISECOND,
               CONVERT(DATETIME2, '19700101'),
-              DATEADD(MINUTE, @durationMinutes, @StartedAt)
+              DATEADD(
+                MINUTE,
+                @durationMinutes,
+                COALESCE(@scheduledStartAt, @StartedAt)
+              )
             )
             ELSE NULL
-          END AS ExpiresAtMs;
+          END AS ExpiresAtMs,
+          DATEDIFF_BIG(
+            MILLISECOND,
+            CONVERT(DATETIME2, '19700101'),
+            @Now
+          ) AS ServerNowMs;
+        END;
       `);
 
     await transaction.commit();
@@ -271,6 +405,7 @@ async function completeQuizAttempt(
   quizId,
   studentId,
   durationMinutes,
+  scheduledStartAt,
   score,
 ) {
   const pool = await connectDB();
@@ -281,6 +416,7 @@ async function completeQuizAttempt(
     .input("quizId", sql.Int, quizId)
     .input("studentId", sql.Int, studentId)
     .input("durationMinutes", sql.Int, durationMinutes)
+    .input("scheduledStartAt", sql.DateTime2(7), scheduledStartAt)
     .input("score", sql.Decimal(9, 4), score).query(`
       DECLARE @Now DATETIME2(7) = SYSUTCDATETIME();
       DECLARE @Completed TABLE (
@@ -311,7 +447,11 @@ async function completeQuizAttempt(
         )
         AND (
           @durationMinutes IS NULL
-          OR DATEADD(MINUTE, @durationMinutes, StartedAt) > @Now
+          OR DATEADD(
+            MINUTE,
+            @durationMinutes,
+            COALESCE(@scheduledStartAt, StartedAt)
+          ) > @Now
         );
 
       IF EXISTS (SELECT 1 FROM @Completed)
@@ -331,11 +471,19 @@ async function completeQuizAttempt(
           AND QuizID = @quizId
           AND StudentID = @studentId
           AND CompletedAt IS NULL
-          AND DATEADD(MINUTE, @durationMinutes, StartedAt) <= @Now
+          AND DATEADD(
+            MINUTE,
+            @durationMinutes,
+            COALESCE(@scheduledStartAt, StartedAt)
+          ) <= @Now
       )
       BEGIN
         UPDATE dbo.QuizAttempts
-        SET CompletedAt = DATEADD(MINUTE, @durationMinutes, StartedAt)
+        SET CompletedAt = DATEADD(
+          MINUTE,
+          @durationMinutes,
+          COALESCE(@scheduledStartAt, StartedAt)
+        )
         WHERE AttemptID = @attemptId
           AND QuizID = @quizId
           AND StudentID = @studentId
@@ -360,6 +508,150 @@ async function completeQuizAttempt(
     `);
 
   return result.recordset[0];
+}
+
+async function updateQuizWithQuestions(quizId, data) {
+  const pool = await connectDB();
+  const transaction = new sql.Transaction(pool);
+  const pointsPerQuestion = Number((100 / data.questions.length).toFixed(4));
+
+  await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+
+  try {
+    const lockResult = await new sql.Request(transaction)
+      .input("quizId", sql.Int, quizId)
+      .query(`
+        SELECT QuizID
+        FROM dbo.Quizzes WITH (UPDLOCK, HOLDLOCK)
+        WHERE QuizID = @quizId;
+
+        IF EXISTS (
+          SELECT 1
+          FROM dbo.QuizAttempts WITH (UPDLOCK, HOLDLOCK)
+          WHERE QuizID = @quizId
+        )
+          SELECT CAST(1 AS BIT) AS HasAttempts;
+        ELSE
+          SELECT CAST(0 AS BIT) AS HasAttempts;
+      `);
+
+    if (!lockResult.recordsets[0].length) {
+      await transaction.commit();
+      return { notFound: true };
+    }
+
+    if (lockResult.recordsets[1][0].HasAttempts) {
+      await transaction.commit();
+      return { hasAttempts: true };
+    }
+
+    await new sql.Request(transaction)
+      .input("quizId", sql.Int, quizId)
+      .input("lessonId", sql.Int, data.lessonId)
+      .input("title", sql.NVarChar(200), data.title)
+      .input("description", sql.NVarChar(sql.MAX), data.description)
+      .input("durationMinutes", sql.Int, data.durationMinutes)
+      .input("scheduledStartAt", sql.DateTime2(7), data.scheduledStartAt)
+      .query(`
+        UPDATE dbo.Quizzes
+        SET LessonID = @lessonId,
+            Title = @title,
+            Description = @description,
+            DurationMinutes = @durationMinutes,
+            ScheduledStartAt = @scheduledStartAt
+        WHERE QuizID = @quizId;
+
+        DELETE answerOption
+        FROM dbo.QuestionOptions AS answerOption
+        INNER JOIN dbo.Questions AS question
+          ON question.QuestionID = answerOption.QuestionID
+        WHERE question.QuizID = @quizId;
+
+        DELETE FROM dbo.Questions WHERE QuizID = @quizId;
+      `);
+
+    for (const question of data.questions) {
+      const questionResult = await new sql.Request(transaction)
+        .input("quizId", sql.Int, quizId)
+        .input("questionText", sql.NVarChar(sql.MAX), question.questionText)
+        .input("points", sql.Decimal(9, 4), pointsPerQuestion).query(`
+          INSERT INTO dbo.Questions (QuizID, QuestionText, Points)
+          OUTPUT INSERTED.QuestionID
+          VALUES (@quizId, @questionText, @points)
+        `);
+
+      const questionId = questionResult.recordset[0].QuestionID;
+
+      for (const option of question.options) {
+        await new sql.Request(transaction)
+          .input("questionId", sql.Int, questionId)
+          .input("optionText", sql.NVarChar(500), option.optionText)
+          .input("isCorrect", sql.Bit, option.isCorrect).query(`
+            INSERT INTO dbo.QuestionOptions
+              (QuestionID, OptionText, IsCorrect)
+            VALUES
+              (@questionId, @optionText, @isCorrect)
+          `);
+      }
+    }
+
+    await transaction.commit();
+    return { updated: true };
+  } catch (error) {
+    if (transaction._aborted !== true) {
+      await transaction.rollback();
+    }
+
+    throw error;
+  }
+}
+
+async function deleteQuiz(quizId) {
+  const pool = await connectDB();
+  const transaction = new sql.Transaction(pool);
+
+  await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+
+  try {
+    const result = await new sql.Request(transaction)
+      .input("quizId", sql.Int, quizId)
+      .query(`
+        SELECT QuizID
+        FROM dbo.Quizzes WITH (UPDLOCK, HOLDLOCK)
+        WHERE QuizID = @quizId;
+
+        IF @@ROWCOUNT = 0
+        BEGIN
+          SELECT CAST(0 AS BIT) AS Deleted;
+        END
+        ELSE
+        BEGIN
+          DELETE attempt
+          FROM dbo.QuizAttempts AS attempt
+          WHERE attempt.QuizID = @quizId;
+
+          DELETE answerOption
+          FROM dbo.QuestionOptions AS answerOption
+          INNER JOIN dbo.Questions AS question
+            ON question.QuestionID = answerOption.QuestionID
+          WHERE question.QuizID = @quizId;
+
+          DELETE FROM dbo.Questions WHERE QuizID = @quizId;
+          DELETE FROM dbo.Quizzes WHERE QuizID = @quizId;
+
+          SELECT CAST(1 AS BIT) AS Deleted;
+        END;
+      `);
+
+    await transaction.commit();
+    return result.recordsets[1][0].Deleted;
+  } catch (error) {
+    if (transaction._aborted !== true) {
+      await transaction.rollback();
+    }
+
+    throw error;
+  }
 }
 
 async function getStudentAttempts(studentId) {
@@ -390,9 +682,12 @@ module.exports = {
   getQuizzesByCourse,
   createQuizWithQuestions,
   getQuizById,
+  getQuizForManagement,
   getQuestionsForStudent,
   getQuestionsForGrading,
   getOrCreateQuizAttempt,
   completeQuizAttempt,
+  updateQuizWithQuestions,
+  deleteQuiz,
   getStudentAttempts,
 };
