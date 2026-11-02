@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import "./Navbar.css";
 
 function Navbar() {
   const { user, logout } = useAuth();
@@ -30,7 +31,7 @@ function Navbar() {
     .join("");
 
   return (
-    <header className="bg-white border-bottom sticky-top py-3 px-4 shadow-sm">
+    <header className="navbar-responsive bg-white border-bottom sticky-top py-3 px-4 shadow-sm">
       <div className="container-fluid d-flex align-items-center justify-content-between">
         <Link
           className="d-flex align-items-center gap-2 text-decoration-none me-4"
@@ -66,15 +67,28 @@ function Navbar() {
 
         <button
           type="button"
-          className="navbar-toggler d-lg-none border-0 bg-transparent"
+          className="navbar-toggler navbar-responsive-toggle d-lg-none border-0 bg-transparent"
           onClick={() => setMenuOpen((open) => !open)}
           aria-label="Hap menynë"
+          aria-expanded={menuOpen}
+          aria-controls="navbarContent"
         >
-          <span className="navbar-toggler-icon" />
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <path d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
         </button>
 
         <div
-          className={`collapse navbar-collapse d-lg-flex justify-content-between align-items-center ${menuOpen ? "show" : ""}`}
+          className={`collapse navbar-collapse navbar-responsive-menu d-lg-flex justify-content-between align-items-center ${menuOpen ? "show" : ""}`}
           id="navbarContent"
         >
           <nav className="d-flex flex-column flex-lg-row align-items-lg-center gap-4 my-2 my-lg-0 ms-lg-3">
@@ -139,7 +153,7 @@ function Navbar() {
 
           <div className="d-flex align-items-center gap-3 mt-3 mt-lg-0">
             <div
-              className="position-relative d-none d-md-block"
+              className="navbar-responsive-search position-relative"
               style={{ width: "240px" }}
             >
               <span className="position-absolute top-50 start-0 translate-middle-y ps-3 text-muted">
@@ -171,7 +185,7 @@ function Navbar() {
             {user ? (
               <>
                 <div
-                  className="position-relative cursor-pointer p-2 text-muted"
+                  className="navbar-responsive-notification position-relative cursor-pointer p-2 text-muted"
                   title="Njoftimet"
                 >
                   <svg
@@ -199,9 +213,9 @@ function Navbar() {
                   />
                 </div>
 
-                <div className="vr h-25 text-muted opacity-25 mx-1" />
+                <div className="navbar-responsive-divider vr h-25 text-muted opacity-25 mx-1" />
 
-                <div className="d-flex align-items-center gap-2">
+                <div className="navbar-responsive-user d-flex align-items-center gap-2">
                   <div className="text-end d-none d-sm-block">
                     <span
                       className="d-block fw-bold text-dark"

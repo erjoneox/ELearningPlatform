@@ -1,0 +1,56 @@
+@media (max-width: 991.98px) {
+  .navbar-responsive > .container-fluid {
+    flex-wrap: wrap;
+  }
+
+  .navbar-responsive-menu {
+    flex-basis: 100%;
+    width: 100%;
+    padding-top: 1rem;
+  }
+
+  .navbar-responsive-menu.show {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 1rem;
+  }
+
+  .navbar-responsive-menu nav {
+    align-items: stretch;
+    gap: 0.5rem !important;
+    margin: 0 !important;
+  }
+
+  .navbar-responsive-menu nav a {
+    padding: 0.5rem 0;
+  }
+
+  .navbar-responsive-menu > div {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    margin-top: 0 !important;
+  }
+
+  .navbar-responsive-search {
+    flex: 1 1 240px;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .navbar-responsive {
+    padding-right: 1rem !important;
+    padding-left: 1rem !important;
+  }
+
+  .navbar-responsive-search {
+    flex-basis: 100%;
+  }
+
+  .navbar-responsive-notification,
+  .navbar-responsive-divider {
+    display: none;
+  }
+}
