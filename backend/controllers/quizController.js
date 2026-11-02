@@ -5,6 +5,8 @@ const {
   getQuestionsForStudent,
   getQuestionsForGrading,
   createAttempt,
+  getOrCreateTimedAttempt,
+  completeTimedAttempt,
   getStudentAttempts,
 } = require("../models/quizModel");
 
@@ -12,6 +14,8 @@ const { getCourseById } = require("../models/courseModel");
 const { getLessonById } = require("../models/lessonModel");
 const { connectDB } = require("../config/db");
 const sql = require("mssql");
+
+const QUIZ_DURATIONS_MINUTES = [5, 10, 15, 20];
 
 async function hasEnrollment(studentId, courseId) {
   const pool = await connectDB();
@@ -114,8 +118,13 @@ async function listQuizzes(req, res) {
 async function addQuiz(req, res) {
   try {
     const courseId = Number(req.params.courseId);
-    const { title, description, lessonId, questions } = req.body;
+    const { title, description, lessonId, questions, durationMinutes } =
+      req.body;
     const questionError = validateQuizQuestions(questions);
+    const parsedDurationMinutes =
+      durationMinutes == null || durationMinutes === ""
+        ? null
+        : Number(durationMinutes);
 
     if (
       !Number.isInteger(courseId) ||
@@ -123,12 +132,14 @@ async function addQuiz(req, res) {
       typeof title !== "string" ||
       !title.trim() ||
       title.trim().length > 200 ||
+      (parsedDurationMinutes != null &&
+        !QUIZ_DURATIONS_MINUTES.includes(parsedDurationMinutes)) ||
       questionError
     ) {
       return res.status(400).json({
         message:
           questionError ||
-          "A valid course ID and quiz title (up to 200 characters) are required.",
+          "A valid course ID, quiz title, and optional preset duration are required.",
       });
     }
 
@@ -177,6 +188,7 @@ async function addQuiz(req, res) {
       lessonId: parsedLessonId,
       title: title.trim(),
       description: typeof description === "string" ? description.trim() : null,
+      durationMinutes: parsedDurationMinutes,
       questions: normalizedQuestions,
     });
 
@@ -223,6 +235,24 @@ async function takeQuiz(req, res) {
       });
     }
 
+    let timedAttempt = null;
+    const durationMinutes =
+      quiz.DurationMinutes == null ? null : Number(quiz.DurationMinutes);
+
+    if (durationMinutes != null) {
+      if (!QUIZ_DURATIONS_MINUTES.includes(durationMinutes)) {
+        return res.status(500).json({
+          message: "This quiz has an invalid time limit.",
+        });
+      }
+
+      timedAttempt = await getOrCreateTimedAttempt(
+        quizId,
+        req.user.userId,
+        durationMinutes,
+      );
+    }
+
     return res.status(200).json({
       quiz: {
         quizId: quiz.QuizID,
@@ -230,6 +260,9 @@ async function takeQuiz(req, res) {
         description: quiz.Description,
         questionCount: questions.length,
         totalPoints: 100,
+        durationMinutes,
+        attemptId: timedAttempt?.AttemptID ?? null,
+        expiresAtMs: timedAttempt ? Number(timedAttempt.ExpiresAtMs) : null,
       },
       questions,
     });
@@ -244,7 +277,7 @@ async function takeQuiz(req, res) {
 async function submitQuiz(req, res) {
   try {
     const quizId = Number(req.params.quizId);
-    const { answers } = req.body;
+    const { answers, attemptId } = req.body;
 
     if (!Number.isInteger(quizId) || quizId <= 0 || !Array.isArray(answers)) {
       return res.status(400).json({
@@ -286,6 +319,20 @@ async function submitQuiz(req, res) {
       });
     }
 
+    const durationMinutes =
+      quiz.DurationMinutes == null ? null : Number(quiz.DurationMinutes);
+
+    if (
+      durationMinutes != null &&
+      (!QUIZ_DURATIONS_MINUTES.includes(durationMinutes) ||
+        !Number.isInteger(attemptId) ||
+        attemptId <= 0)
+    ) {
+      return res.status(400).json({
+        message: "A valid timed quiz attempt is required.",
+      });
+    }
+
     const grouped = new Map();
 
     for (const row of questions) {
@@ -303,7 +350,8 @@ async function submitQuiz(req, res) {
       if (row.IsCorrect) {
         if (q.correctOptionId != null) {
           return res.status(400).json({
-            message: "Every quiz question must have exactly one correct answer.",
+            message:
+              "Every quiz question must have exactly one correct answer.",
           });
         }
         q.correctOptionId = row.OptionID;
@@ -362,7 +410,27 @@ async function submitQuiz(req, res) {
     }
 
     const score = Number(((correctCount / grouped.size) * 100).toFixed(4));
-    const attempt = await createAttempt(quizId, req.user.userId, score);
+    let attempt;
+
+    if (durationMinutes == null) {
+      attempt = await createAttempt(quizId, req.user.userId, score);
+    } else {
+      attempt = await completeTimedAttempt(
+        attemptId,
+        quizId,
+        req.user.userId,
+        durationMinutes,
+        score,
+      );
+
+      if (!attempt.WasCompleted) {
+        return res.status(attempt.WasExpired ? 410 : 409).json({
+          message: attempt.WasExpired
+            ? "The quiz time has expired. This attempt cannot be submitted."
+            : "This quiz attempt is no longer active. Reopen the quiz to start a new attempt.",
+        });
+      }
+    }
 
     return res.status(201).json({
       message: "Quiz submitted successfully.",

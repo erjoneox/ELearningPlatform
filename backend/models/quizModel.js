@@ -13,6 +13,7 @@ async function getQuizzesByCourse(courseId) {
         q.Title,
         q.Description,
         q.CreatedAt,
+        q.DurationMinutes,
         COUNT(DISTINCT question.QuestionID) AS QuestionCount
       FROM Quizzes q
       LEFT JOIN Questions question ON question.QuizID = q.QuizID
@@ -23,7 +24,8 @@ async function getQuizzesByCourse(courseId) {
         q.LessonID,
         q.Title,
         q.Description,
-        q.CreatedAt
+        q.CreatedAt,
+        q.DurationMinutes
       ORDER BY q.CreatedAt DESC
     `);
 
@@ -43,16 +45,20 @@ async function createQuizWithQuestions(courseId, data) {
       .input("lessonId", sql.Int, data.lessonId)
       .input("title", sql.NVarChar(200), data.title)
       .input("description", sql.NVarChar(sql.MAX), data.description)
+      .input("durationMinutes", sql.Int, data.durationMinutes)
       .query(`
-        INSERT INTO Quizzes (CourseID, LessonID, Title, Description)
+        INSERT INTO Quizzes
+          (CourseID, LessonID, Title, Description, DurationMinutes)
         OUTPUT
           INSERTED.QuizID,
           INSERTED.CourseID,
           INSERTED.LessonID,
           INSERTED.Title,
           INSERTED.Description,
-          INSERTED.CreatedAt
-        VALUES (@courseId, @lessonId, @title, @description)
+          INSERTED.CreatedAt,
+          INSERTED.DurationMinutes
+        VALUES
+          (@courseId, @lessonId, @title, @description, @durationMinutes)
       `);
 
     const quiz = quizResult.recordset[0];
@@ -102,7 +108,14 @@ async function getQuizById(quizId) {
   const pool = await connectDB();
 
   const result = await pool.request().input("quizId", sql.Int, quizId).query(`
-    SELECT QuizID, CourseID, LessonID, Title, Description, CreatedAt
+    SELECT
+      QuizID,
+      CourseID,
+      LessonID,
+      Title,
+      Description,
+      CreatedAt,
+      DurationMinutes
     FROM Quizzes
     WHERE QuizID = @quizId
   `);
@@ -191,6 +204,159 @@ async function createAttempt(quizId, studentId, score) {
   return result.recordset[0];
 }
 
+async function getOrCreateTimedAttempt(quizId, studentId, durationMinutes) {
+  const pool = await connectDB();
+  const transaction = new sql.Transaction(pool);
+
+  await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+
+  try {
+    const result = await new sql.Request(transaction)
+      .input("quizId", sql.Int, quizId)
+      .input("studentId", sql.Int, studentId)
+      .input("durationMinutes", sql.Int, durationMinutes).query(`
+        DECLARE @AttemptID INT;
+        DECLARE @StartedAt DATETIME2(7);
+
+        SELECT TOP (1)
+          @AttemptID = AttemptID,
+          @StartedAt = StartedAt
+        FROM dbo.QuizAttempts WITH (UPDLOCK, HOLDLOCK)
+        WHERE QuizID = @quizId
+          AND StudentID = @studentId
+          AND CompletedAt IS NULL
+        ORDER BY StartedAt DESC;
+
+        IF @AttemptID IS NOT NULL
+          AND DATEADD(MINUTE, @durationMinutes, @StartedAt) <= SYSUTCDATETIME()
+        BEGIN
+          UPDATE dbo.QuizAttempts
+          SET CompletedAt = DATEADD(MINUTE, @durationMinutes, @StartedAt)
+          WHERE AttemptID = @AttemptID
+            AND CompletedAt IS NULL;
+
+          SET @AttemptID = NULL;
+        END;
+
+        IF @AttemptID IS NULL
+        BEGIN
+          INSERT INTO dbo.QuizAttempts
+            (QuizID, StudentID, Score, StartedAt, CompletedAt)
+          VALUES
+            (@quizId, @studentId, NULL, SYSUTCDATETIME(), NULL);
+
+          SET @AttemptID = SCOPE_IDENTITY();
+
+          SELECT @StartedAt = StartedAt
+          FROM dbo.QuizAttempts
+          WHERE AttemptID = @AttemptID;
+        END;
+
+        SELECT
+          @AttemptID AS AttemptID,
+          DATEDIFF_BIG(
+            MILLISECOND,
+            CONVERT(DATETIME2, '19700101'),
+            DATEADD(MINUTE, @durationMinutes, @StartedAt)
+          ) AS ExpiresAtMs;
+      `);
+
+    await transaction.commit();
+    return result.recordset[0];
+  } catch (error) {
+    if (transaction._aborted !== true) {
+      await transaction.rollback();
+    }
+
+    throw error;
+  }
+}
+
+async function completeTimedAttempt(
+  attemptId,
+  quizId,
+  studentId,
+  durationMinutes,
+  score,
+) {
+  const pool = await connectDB();
+
+  const result = await pool
+    .request()
+    .input("attemptId", sql.Int, attemptId)
+    .input("quizId", sql.Int, quizId)
+    .input("studentId", sql.Int, studentId)
+    .input("durationMinutes", sql.Int, durationMinutes)
+    .input("score", sql.Decimal(9, 4), score).query(`
+      DECLARE @Now DATETIME2(7) = SYSUTCDATETIME();
+      DECLARE @Completed TABLE (
+        AttemptID INT,
+        Score DECIMAL(9, 4),
+        CompletedAt DATETIME2(7)
+      );
+
+      UPDATE dbo.QuizAttempts
+      SET Score = @score,
+          CompletedAt = @Now
+      OUTPUT
+        INSERTED.AttemptID,
+        INSERTED.Score,
+        INSERTED.CompletedAt
+      INTO @Completed
+      WHERE AttemptID = @attemptId
+        AND QuizID = @quizId
+        AND StudentID = @studentId
+        AND CompletedAt IS NULL
+        AND DATEADD(MINUTE, @durationMinutes, StartedAt) > @Now;
+
+      IF EXISTS (SELECT 1 FROM @Completed)
+      BEGIN
+        SELECT
+          AttemptID,
+          Score,
+          CompletedAt,
+          CAST(1 AS BIT) AS WasCompleted,
+          CAST(0 AS BIT) AS WasExpired
+        FROM @Completed;
+      END
+      ELSE IF EXISTS (
+        SELECT 1
+        FROM dbo.QuizAttempts
+        WHERE AttemptID = @attemptId
+          AND QuizID = @quizId
+          AND StudentID = @studentId
+          AND CompletedAt IS NULL
+          AND DATEADD(MINUTE, @durationMinutes, StartedAt) <= @Now
+      )
+      BEGIN
+        UPDATE dbo.QuizAttempts
+        SET CompletedAt = DATEADD(MINUTE, @durationMinutes, StartedAt)
+        WHERE AttemptID = @attemptId
+          AND QuizID = @quizId
+          AND StudentID = @studentId
+          AND CompletedAt IS NULL;
+
+        SELECT
+          @attemptId AS AttemptID,
+          CAST(NULL AS DECIMAL(9, 4)) AS Score,
+          CAST(NULL AS DATETIME2(7)) AS CompletedAt,
+          CAST(0 AS BIT) AS WasCompleted,
+          CAST(1 AS BIT) AS WasExpired;
+      END
+      ELSE
+      BEGIN
+        SELECT
+          @attemptId AS AttemptID,
+          CAST(NULL AS DECIMAL(9, 4)) AS Score,
+          CAST(NULL AS DATETIME2(7)) AS CompletedAt,
+          CAST(0 AS BIT) AS WasCompleted,
+          CAST(0 AS BIT) AS WasExpired;
+      END;
+    `);
+
+  return result.recordset[0];
+}
+
 async function getStudentAttempts(studentId) {
   const pool = await connectDB();
 
@@ -222,5 +388,7 @@ module.exports = {
   getQuestionsForStudent,
   getQuestionsForGrading,
   createAttempt,
+  getOrCreateTimedAttempt,
+  completeTimedAttempt,
   getStudentAttempts,
 };

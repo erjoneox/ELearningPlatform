@@ -14,6 +14,10 @@ function formatQuizDate(value) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("sq-AL");
 }
 
+function getCurrentTimeMs() {
+  return Date.now();
+}
+
 function CourseQuizzes({ courseId, lessons, userRole }) {
   const [quizzes, setQuizzes] = useState([]);
   const [attempts, setAttempts] = useState([]);
@@ -26,10 +30,13 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
   const [answers, setAnswers] = useState({});
   const [submittingQuiz, setSubmittingQuiz] = useState(false);
   const [quizResult, setQuizResult] = useState(null);
+  const [clockNow, setClockNow] = useState(0);
+  const [serverExpired, setServerExpired] = useState(false);
   const [form, setForm] = useState({
     title: "",
     description: "",
     lessonId: "",
+    durationMinutes: "",
     questions: [createQuestion()],
   });
 
@@ -74,6 +81,21 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
     loadQuizzes();
     loadAttempts();
   }, [loadAttempts, loadQuizzes]);
+
+  useEffect(() => {
+    if (activeQuiz?.expiresAtMs == null || quizResult) return undefined;
+
+    const refreshClock = () => setClockNow(getCurrentTimeMs());
+    const intervalId = window.setInterval(refreshClock, 250);
+    window.addEventListener("focus", refreshClock);
+    document.addEventListener("visibilitychange", refreshClock);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshClock);
+      document.removeEventListener("visibilitychange", refreshClock);
+    };
+  }, [activeQuiz?.expiresAtMs, quizResult]);
 
   function updateQuestion(questionIndex, updater) {
     setForm((previous) => ({
@@ -133,6 +155,9 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
         title: form.title.trim(),
         description: form.description.trim(),
         lessonId: form.lessonId ? Number(form.lessonId) : null,
+        durationMinutes: form.durationMinutes
+          ? Number(form.durationMinutes)
+          : null,
         questions: form.questions.map((question) => ({
           questionText: question.questionText.trim(),
           options: question.options
@@ -149,6 +174,7 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
         title: "",
         description: "",
         lessonId: "",
+        durationMinutes: "",
         questions: [createQuestion()],
       });
       setShowCreateForm(false);
@@ -175,10 +201,16 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
     setTakingQuizId(quizId);
     setQuizResult(null);
     setAnswers({});
+    setServerExpired(false);
+    setClockNow(getCurrentTimeMs());
 
     try {
       const response = await api.get(`/quizzes/${quizId}/take`);
-      setActiveQuiz({ ...response.data.quiz, questions: response.data.questions });
+      setClockNow(getCurrentTimeMs());
+      setActiveQuiz({
+        ...response.data.quiz,
+        questions: response.data.questions,
+      });
     } catch (requestError) {
       await Swal.fire({
         icon: "error",
@@ -195,7 +227,7 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
   async function submitQuiz(event) {
     event.preventDefault();
 
-    if (!activeQuiz) return;
+    if (!activeQuiz || timeExpired) return;
 
     const missingAnswer = activeQuiz.questions.find(
       (question) => answers[question.questionId] == null,
@@ -214,6 +246,7 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
 
     try {
       const response = await api.post(`/quizzes/${activeQuiz.quizId}/submit`, {
+        attemptId: activeQuiz.attemptId,
         answers: activeQuiz.questions.map((question) => ({
           questionId: question.questionId,
           optionId: Number(answers[question.questionId]),
@@ -223,6 +256,16 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
       setQuizResult(response.data.result);
       await loadAttempts();
     } catch (requestError) {
+      if (requestError.response?.status === 410) {
+        setServerExpired(true);
+        await Swal.fire({
+          icon: "info",
+          title: "Koha përfundoi",
+          text: "Kuizi nuk mund të dorëzohet pasi të ketë mbaruar koha.",
+        });
+        return;
+      }
+
       await Swal.fire({
         icon: "error",
         title: "Dorëzimi dështoi",
@@ -239,11 +282,21 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
     setActiveQuiz(null);
     setQuizResult(null);
     setAnswers({});
+    setServerExpired(false);
   }
 
   const selectedQuizAttempts = attempts.filter(
     (attempt) => Number(attempt.QuizID) === Number(activeQuiz?.quizId),
   );
+  const expiresAtMs =
+    activeQuiz?.expiresAtMs == null ? null : Number(activeQuiz.expiresAtMs);
+  const remainingSeconds =
+    expiresAtMs == null
+      ? null
+      : Math.max(0, Math.ceil((expiresAtMs - clockNow) / 1000));
+  const timeExpired =
+    serverExpired ||
+    (remainingSeconds != null && remainingSeconds === 0);
 
   return (
     <section className="mt-5 mb-5">
@@ -322,6 +375,28 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
               }))
             }
           />
+
+          <label className="form-label" htmlFor="quiz-duration">
+            Kohëzgjatja e kuizit
+          </label>
+          <select
+            id="quiz-duration"
+            className="form-select mb-3"
+            value={form.durationMinutes}
+            onChange={(event) =>
+              setForm((previous) => ({
+                ...previous,
+                durationMinutes: event.target.value,
+              }))
+            }
+          >
+            <option value="">Pa kufi kohor</option>
+            {[5, 10, 15, 20].map((minutes) => (
+              <option key={minutes} value={minutes}>
+                {minutes} minuta
+              </option>
+            ))}
+          </select>
 
           <label className="form-label" htmlFor="quiz-lesson">
             Lidhe me një mësim (opsionale)
@@ -480,6 +555,17 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
                   <p className="text-secondary">{activeQuiz.description}</p>
                 )}
               </div>
+              {remainingSeconds != null && (
+                <span
+                  className={`badge fs-6 ${timeExpired ? "text-bg-danger" : "text-bg-warning"}`}
+                  role="timer"
+                  aria-live="polite"
+                >
+                  {timeExpired
+                    ? "Koha përfundoi"
+                    : `Koha: ${String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:${String(remainingSeconds % 60).padStart(2, "0")}`}
+                </span>
+              )}
               <button
                 type="button"
                 className="btn-close"
@@ -510,6 +596,12 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
               </div>
             ) : (
               <form onSubmit={submitQuiz}>
+                {timeExpired && (
+                  <div className="alert alert-danger" role="alert">
+                    Koha përfundoi. Përgjigjet janë bllokuar dhe kuizi nuk mund
+                    të dorëzohet.
+                  </div>
+                )}
                 {activeQuiz.questions.map((question, index) => (
                   <fieldset
                     className="border rounded p-3 mb-3"
@@ -529,6 +621,7 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
                         <input
                           type="radio"
                           className="form-check-input mt-0"
+                          disabled={timeExpired || submittingQuiz}
                           name={`answer-${question.questionId}`}
                           value={option.optionId}
                           checked={
@@ -551,9 +644,13 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
                   <button
                     type="submit"
                     className="btn btn-success"
-                    disabled={submittingQuiz}
+                    disabled={submittingQuiz || timeExpired}
                   >
-                    {submittingQuiz ? "Duke dorëzuar..." : "Dorëzo kuizin"}
+                    {submittingQuiz
+                      ? "Duke dorëzuar..."
+                      : timeExpired
+                        ? "Koha përfundoi"
+                        : "Dorëzo kuizin"}
                   </button>
                   <button
                     type="button"
@@ -613,12 +710,24 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
                           ? `${Number((100 / questionCount).toFixed(4))} pikë për pyetje · 100 pikë gjithsej`
                           : "Kuizi nuk ka pyetje."}
                       </p>
+                      {quiz.DurationMinutes != null && (
+                        <p className="small text-secondary">
+                          Kohëzgjatja: {quiz.DurationMinutes} minuta
+                        </p>
+                      )}
                       {userRole === "Student" && latestAttempt && (
                         <div className="alert alert-light border py-2">
-                          Përpjekje: {quizAttempts.length} · Rezultati i fundit:{" "}
-                          <strong>
-                            {Number(latestAttempt.Score).toFixed(2)} / 100
-                          </strong>
+                          Përpjekje: {quizAttempts.length} ·{" "}
+                          {latestAttempt.Score == null ? (
+                            <strong>Përpjekja e fundit nuk u dorëzua.</strong>
+                          ) : (
+                            <>
+                              Rezultati i fundit:{" "}
+                              <strong>
+                                {Number(latestAttempt.Score).toFixed(2)} / 100
+                              </strong>
+                            </>
+                          )}
                         </div>
                       )}
                       {userRole === "Student" && (
