@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Link } from "react-router-dom";
 
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
@@ -19,23 +19,7 @@ function Home() {
   }
 
   return (
-    <div className="min-vh-100 bg-light">
-      <nav className="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div className="container">
-          <span className="navbar-brand fw-bold">E-Learning</span>
-
-          <div className="d-flex gap-2">
-            <a href="/login" className="btn btn-outline-light">
-              Kyçu
-            </a>
-
-            <a href="/register" className="btn btn-light text-primary">
-              Regjistrohu
-            </a>
-          </div>
-        </div>
-      </nav>
-
+    <div className="home-page bg-light">
       <main className="container py-5">
         <div className="row align-items-center min-vh-50">
           <div className="col-lg-8">
@@ -46,9 +30,9 @@ function Home() {
               vetme.
             </p>
 
-            <a href="/register" className="btn btn-primary btn-lg mt-3">
+            <Link to="/register" className="btn btn-primary btn-lg mt-3">
               Fillo tani
-            </a>
+            </Link>
           </div>
         </div>
       </main>
@@ -58,20 +42,23 @@ function Home() {
 
 function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
-      <Route path="/courses" element={<Courses />} />
+    <>
+      <Navbar />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/courses" element={<Courses />} />
 
-      <Route element={<ProtectedRoute />}>
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/courses/:courseId" element={<CourseDetails />} />
-        <Route path="/my-courses" element={<MyCourses />} />
-      </Route>
+        <Route element={<ProtectedRoute />}>
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/courses/:courseId" element={<CourseDetails />} />
+          <Route path="/my-courses" element={<MyCourses />} />
+        </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   );
 }
 

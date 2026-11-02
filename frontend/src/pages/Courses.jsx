@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import Swal from "sweetalert2";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
-import Navbar from "../components/Navbar";
 
 function Courses() {
   const { user } = useAuth();
@@ -241,8 +240,6 @@ function Courses() {
 
   return (
     <>
-      <Navbar />
-
       <main className="container py-5">
         <div className="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
           <div>

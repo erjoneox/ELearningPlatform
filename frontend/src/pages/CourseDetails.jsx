@@ -4,7 +4,6 @@ import Swal from "sweetalert2";
 
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
-import Navbar from "../components/Navbar";
 import CourseQuizzes from "../components/CourseQuizzes";
 
 function CourseDetails() {
@@ -1065,8 +1064,6 @@ function CourseDetails() {
 
   return (
     <>
-      <Navbar />
-
       <main className="container py-5">
         <Link to="/courses" className="btn btn-link px-0 mb-3">
           &larr; Kthehu te kurset

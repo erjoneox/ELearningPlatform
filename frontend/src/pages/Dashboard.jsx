@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
-import Navbar from "../components/Navbar";
 import "./Dashboard.css";
 
 const roleDetails = {
@@ -358,7 +357,6 @@ function Dashboard() {
 
   return (
     <>
-      <Navbar />
       <main className="dashboard-page">
         <div className="container dashboard-container">
           <header className="dashboard-hero">

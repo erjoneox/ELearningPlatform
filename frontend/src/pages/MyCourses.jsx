@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../api/axios";
-import Navbar from "../components/Navbar";
 
 function MyCourses() {
   const [courses, setCourses] = useState([]);
@@ -35,8 +34,6 @@ function MyCourses() {
 
   return (
     <>
-      <Navbar />
-
       <main className="container py-5">
         <h1 className="fw-bold mb-2">Kurset e mia</h1>
 
