@@ -180,31 +180,7 @@ async function getQuestionsForGrading(quizId) {
   return result.recordset;
 }
 
-async function createAttempt(quizId, studentId, score) {
-  const pool = await connectDB();
-
-  const result = await pool
-    .request()
-    .input("quizId", sql.Int, quizId)
-    .input("studentId", sql.Int, studentId)
-    .input("score", sql.Decimal(9, 4), score).query(`
-      INSERT INTO QuizAttempts
-        (QuizID, StudentID, Score, StartedAt, CompletedAt)
-      OUTPUT
-        INSERTED.AttemptID,
-        INSERTED.QuizID,
-        INSERTED.StudentID,
-        INSERTED.Score,
-        INSERTED.StartedAt,
-        INSERTED.CompletedAt
-      VALUES
-        (@quizId, @studentId, @score, GETDATE(), GETDATE())
-    `);
-
-  return result.recordset[0];
-}
-
-async function getOrCreateTimedAttempt(quizId, studentId, durationMinutes) {
+async function getOrCreateQuizAttempt(quizId, studentId, durationMinutes) {
   const pool = await connectDB();
   const transaction = new sql.Transaction(pool);
 
@@ -215,8 +191,18 @@ async function getOrCreateTimedAttempt(quizId, studentId, durationMinutes) {
       .input("quizId", sql.Int, quizId)
       .input("studentId", sql.Int, studentId)
       .input("durationMinutes", sql.Int, durationMinutes).query(`
+        DECLARE @AlreadyAttempted BIT = 0;
         DECLARE @AttemptID INT;
         DECLARE @StartedAt DATETIME2(7);
+
+        IF EXISTS (
+          SELECT 1
+          FROM dbo.QuizAttempts WITH (UPDLOCK, HOLDLOCK)
+          WHERE QuizID = @quizId
+            AND StudentID = @studentId
+            AND CompletedAt IS NOT NULL
+        )
+          SET @AlreadyAttempted = 1;
 
         SELECT TOP (1)
           @AttemptID = AttemptID,
@@ -227,7 +213,9 @@ async function getOrCreateTimedAttempt(quizId, studentId, durationMinutes) {
           AND CompletedAt IS NULL
         ORDER BY StartedAt DESC;
 
-        IF @AttemptID IS NOT NULL
+        IF @AlreadyAttempted = 0
+          AND @AttemptID IS NOT NULL
+          AND @durationMinutes IS NOT NULL
           AND DATEADD(MINUTE, @durationMinutes, @StartedAt) <= SYSUTCDATETIME()
         BEGIN
           UPDATE dbo.QuizAttempts
@@ -236,9 +224,10 @@ async function getOrCreateTimedAttempt(quizId, studentId, durationMinutes) {
             AND CompletedAt IS NULL;
 
           SET @AttemptID = NULL;
+          SET @AlreadyAttempted = 1;
         END;
 
-        IF @AttemptID IS NULL
+        IF @AlreadyAttempted = 0 AND @AttemptID IS NULL
         BEGIN
           INSERT INTO dbo.QuizAttempts
             (QuizID, StudentID, Score, StartedAt, CompletedAt)
@@ -253,12 +242,17 @@ async function getOrCreateTimedAttempt(quizId, studentId, durationMinutes) {
         END;
 
         SELECT
+          @AlreadyAttempted AS AlreadyAttempted,
           @AttemptID AS AttemptID,
-          DATEDIFF_BIG(
-            MILLISECOND,
-            CONVERT(DATETIME2, '19700101'),
-            DATEADD(MINUTE, @durationMinutes, @StartedAt)
-          ) AS ExpiresAtMs;
+          CASE
+            WHEN @AttemptID IS NOT NULL AND @durationMinutes IS NOT NULL
+            THEN DATEDIFF_BIG(
+              MILLISECOND,
+              CONVERT(DATETIME2, '19700101'),
+              DATEADD(MINUTE, @durationMinutes, @StartedAt)
+            )
+            ELSE NULL
+          END AS ExpiresAtMs;
       `);
 
     await transaction.commit();
@@ -272,7 +266,7 @@ async function getOrCreateTimedAttempt(quizId, studentId, durationMinutes) {
   }
 }
 
-async function completeTimedAttempt(
+async function completeQuizAttempt(
   attemptId,
   quizId,
   studentId,
@@ -307,7 +301,18 @@ async function completeTimedAttempt(
         AND QuizID = @quizId
         AND StudentID = @studentId
         AND CompletedAt IS NULL
-        AND DATEADD(MINUTE, @durationMinutes, StartedAt) > @Now;
+        AND NOT EXISTS (
+          SELECT 1
+          FROM dbo.QuizAttempts AS priorAttempt
+          WHERE priorAttempt.QuizID = @quizId
+            AND priorAttempt.StudentID = @studentId
+            AND priorAttempt.AttemptID <> @attemptId
+            AND priorAttempt.CompletedAt IS NOT NULL
+        )
+        AND (
+          @durationMinutes IS NULL
+          OR DATEADD(MINUTE, @durationMinutes, StartedAt) > @Now
+        );
 
       IF EXISTS (SELECT 1 FROM @Completed)
       BEGIN
@@ -319,7 +324,7 @@ async function completeTimedAttempt(
           CAST(0 AS BIT) AS WasExpired
         FROM @Completed;
       END
-      ELSE IF EXISTS (
+      ELSE IF @durationMinutes IS NOT NULL AND EXISTS (
         SELECT 1
         FROM dbo.QuizAttempts
         WHERE AttemptID = @attemptId
@@ -375,7 +380,7 @@ async function getStudentAttempts(studentId) {
       INNER JOIN Quizzes quiz ON quiz.QuizID = attempt.QuizID
       INNER JOIN Courses course ON course.CourseID = quiz.CourseID
       WHERE attempt.StudentID = @studentId
-      ORDER BY attempt.CompletedAt DESC
+      ORDER BY attempt.StartedAt DESC
     `);
 
   return result.recordset;
@@ -387,8 +392,7 @@ module.exports = {
   getQuizById,
   getQuestionsForStudent,
   getQuestionsForGrading,
-  createAttempt,
-  getOrCreateTimedAttempt,
-  completeTimedAttempt,
+  getOrCreateQuizAttempt,
+  completeQuizAttempt,
   getStudentAttempts,
 };

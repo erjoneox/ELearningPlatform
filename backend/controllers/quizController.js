@@ -4,9 +4,8 @@ const {
   getQuizById,
   getQuestionsForStudent,
   getQuestionsForGrading,
-  createAttempt,
-  getOrCreateTimedAttempt,
-  completeTimedAttempt,
+  getOrCreateQuizAttempt,
+  completeQuizAttempt,
   getStudentAttempts,
 } = require("../models/quizModel");
 
@@ -235,22 +234,29 @@ async function takeQuiz(req, res) {
       });
     }
 
-    let timedAttempt = null;
     const durationMinutes =
       quiz.DurationMinutes == null ? null : Number(quiz.DurationMinutes);
 
-    if (durationMinutes != null) {
-      if (!QUIZ_DURATIONS_MINUTES.includes(durationMinutes)) {
-        return res.status(500).json({
-          message: "This quiz has an invalid time limit.",
-        });
-      }
+    if (
+      durationMinutes != null &&
+      !QUIZ_DURATIONS_MINUTES.includes(durationMinutes)
+    ) {
+      return res.status(500).json({
+        message: "This quiz has an invalid time limit.",
+      });
+    }
 
-      timedAttempt = await getOrCreateTimedAttempt(
-        quizId,
-        req.user.userId,
-        durationMinutes,
-      );
+    const attempt = await getOrCreateQuizAttempt(
+      quizId,
+      req.user.userId,
+      durationMinutes,
+    );
+
+    if (attempt.AlreadyAttempted) {
+      return res.status(409).json({
+        message:
+          "You have already used your attempt for this quiz. You cannot try again.",
+      });
     }
 
     return res.status(200).json({
@@ -261,8 +267,9 @@ async function takeQuiz(req, res) {
         questionCount: questions.length,
         totalPoints: 100,
         durationMinutes,
-        attemptId: timedAttempt?.AttemptID ?? null,
-        expiresAtMs: timedAttempt ? Number(timedAttempt.ExpiresAtMs) : null,
+        attemptId: attempt.AttemptID,
+        expiresAtMs:
+          attempt.ExpiresAtMs == null ? null : Number(attempt.ExpiresAtMs),
       },
       questions,
     });
@@ -324,12 +331,16 @@ async function submitQuiz(req, res) {
 
     if (
       durationMinutes != null &&
-      (!QUIZ_DURATIONS_MINUTES.includes(durationMinutes) ||
-        !Number.isInteger(attemptId) ||
-        attemptId <= 0)
+      !QUIZ_DURATIONS_MINUTES.includes(durationMinutes)
     ) {
       return res.status(400).json({
-        message: "A valid timed quiz attempt is required.",
+        message: "This quiz has an invalid time limit.",
+      });
+    }
+
+    if (!Number.isInteger(attemptId) || attemptId <= 0) {
+      return res.status(400).json({
+        message: "A valid quiz attempt is required.",
       });
     }
 
@@ -412,24 +423,20 @@ async function submitQuiz(req, res) {
     const score = Number(((correctCount / grouped.size) * 100).toFixed(4));
     let attempt;
 
-    if (durationMinutes == null) {
-      attempt = await createAttempt(quizId, req.user.userId, score);
-    } else {
-      attempt = await completeTimedAttempt(
-        attemptId,
-        quizId,
-        req.user.userId,
-        durationMinutes,
-        score,
-      );
+    attempt = await completeQuizAttempt(
+      attemptId,
+      quizId,
+      req.user.userId,
+      durationMinutes,
+      score,
+    );
 
-      if (!attempt.WasCompleted) {
-        return res.status(attempt.WasExpired ? 410 : 409).json({
-          message: attempt.WasExpired
-            ? "The quiz time has expired. This attempt cannot be submitted."
-            : "This quiz attempt is no longer active. Reopen the quiz to start a new attempt.",
-        });
-      }
+    if (!attempt.WasCompleted) {
+      return res.status(attempt.WasExpired ? 410 : 409).json({
+        message: attempt.WasExpired
+          ? "The quiz time has expired. This attempt cannot be submitted."
+          : "This quiz attempt is no longer active and cannot be submitted again.",
+      });
     }
 
     return res.status(201).json({
