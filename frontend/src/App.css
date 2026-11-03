@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Electrolize&family=Poppins&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Barlow&family=Electrolize&display=swap");
 .counter {
   font-size: 16px;
   padding: 5px 10px;
@@ -195,8 +195,8 @@ h6 {
   font-style: normal;
 }
 
-.poppins-regular {
-  font-family: "Poppins", sans-serif;
+.barlow-regular {
+  font-family: "Barlow", sans-serif;
   font-weight: 400;
   font-style: normal;
 }
