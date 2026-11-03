@@ -30,21 +30,21 @@ router.get(
 router.post(
   "/courses/:courseId",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   addLesson,
 );
 
 router.patch(
   "/:lessonId",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   editLesson,
 );
 
 router.delete(
   "/:lessonId",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   removeLesson,
 );
 
@@ -58,7 +58,7 @@ router.get(
 router.post(
   "/:lessonId/materials",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   upload.single("file"),
   addMaterial,
 );
@@ -66,7 +66,7 @@ router.post(
 router.patch(
   "/:lessonId/materials/:materialId",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   upload.single("file"),
   editMaterial,
 );
@@ -74,7 +74,7 @@ router.patch(
 router.delete(
   "/:lessonId/materials/:materialId",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   removeMaterial,
 );
 

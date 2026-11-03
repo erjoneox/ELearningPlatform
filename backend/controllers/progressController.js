@@ -187,7 +187,10 @@ async function getStudentsProgress(req, res) {
       });
     }
 
-    if (req.user.role !== "Admin" && course.InstructorID !== req.user.userId) {
+    if (
+      req.user.role !== "Instructor" ||
+      Number(course.InstructorID) !== Number(req.user.userId)
+    ) {
       return res.status(403).json({
         message: "Nuk ke leje për të parë progresin e këtij kursi.",
       });

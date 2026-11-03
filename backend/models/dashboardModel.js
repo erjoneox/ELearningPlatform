@@ -3,8 +3,7 @@ const { sql, connectDB } = require("../config/db");
 async function getAdminDashboard() {
   const pool = await connectDB();
 
-  const [statisticsResult, coursesResult, submissionsResult] = await Promise.all(
-    [
+  const [statisticsResult, coursesResult] = await Promise.all([
       pool.request().query(`
         SELECT
           (SELECT COUNT(*) FROM Users WHERE Status = 'Active') AS ActiveUsers,
@@ -15,10 +14,7 @@ async function getAdminDashboard() {
           (SELECT COUNT(*) FROM Courses
            WHERE Status = 'Active') AS ActiveCourses,
           (SELECT COUNT(*) FROM Enrollments
-           WHERE Status = 'Active') AS ActiveEnrollments,
-          (SELECT COUNT(*) FROM Submissions
-           WHERE Grade IS NULL) AS UngradedSubmissions,
-          (SELECT COUNT(*) FROM Submissions) AS TotalSubmissions
+           WHERE Status = 'Active') AS ActiveEnrollments
       `),
       pool.request().query(`
         SELECT TOP 6
@@ -37,29 +33,11 @@ async function getAdminDashboard() {
         WHERE c.Status = 'Active'
         ORDER BY c.CreatedAt DESC
       `),
-      pool.request().query(`
-        SELECT TOP 8
-          s.SubmissionID,
-          s.SubmittedAt,
-          s.Grade,
-          u.FirstName + ' ' + u.LastName AS StudentName,
-          a.Title AS AssignmentTitle,
-          a.CourseID,
-          c.Title AS CourseTitle
-        FROM Submissions s
-        INNER JOIN Users u ON u.UserID = s.StudentID
-        INNER JOIN Assignments a ON a.AssignmentID = s.AssignmentID
-        INNER JOIN Courses c ON c.CourseID = a.CourseID
-        WHERE s.Grade IS NULL
-        ORDER BY s.SubmittedAt ASC
-      `),
-    ],
-  );
+    ]);
 
   return {
     statistics: statisticsResult.recordset[0],
     recentCourses: coursesResult.recordset,
-    ungradedSubmissions: submissionsResult.recordset,
   };
 }
 

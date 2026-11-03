@@ -22,7 +22,8 @@ const sql = require("mssql");
 
 async function canManageCourse(course, user) {
   return (
-    user.role === "Admin" || Number(course.InstructorID) === Number(user.userId)
+    user.role === "Instructor" &&
+    Number(course.InstructorID) === Number(user.userId)
   );
 }
 

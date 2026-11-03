@@ -38,9 +38,8 @@ async function hasEnrollment(studentId, courseId) {
 
 function canManageCourse(course, user) {
   return (
-    user.role === "Admin" ||
-    (user.role === "Instructor" &&
-      Number(course.InstructorID) === Number(user.userId))
+    user.role === "Instructor" &&
+    Number(course.InstructorID) === Number(user.userId)
   );
 }
 
@@ -108,7 +107,10 @@ async function listAssignments(req, res) {
           message: "You must be enrolled in this course.",
         });
       }
-    } else if (!canManageCourse(course, req.user)) {
+    } else if (
+      req.user.role !== "Admin" &&
+      !canManageCourse(course, req.user)
+    ) {
       return res.status(403).json({
         message: "You cannot access these assignments.",
       });
@@ -141,7 +143,8 @@ async function addAssignment(req, res) {
       maxPoints > 100
     ) {
       return res.status(400).json({
-        message: "Valid course ID, title and maxPoints from 1 to 100 are required.",
+        message:
+          "Valid course ID, title and maxPoints from 1 to 100 are required.",
       });
     }
 
@@ -224,7 +227,8 @@ async function editAssignment(req, res) {
       maxPoints > 100
     ) {
       return res.status(400).json({
-        message: "Valid assignment ID, title and maxPoints from 1 to 100 are required.",
+        message:
+          "Valid assignment ID, title and maxPoints from 1 to 100 are required.",
       });
     }
 

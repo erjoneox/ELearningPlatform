@@ -43,8 +43,7 @@ function CourseDetails() {
     maxPoints: 100,
   });
 
-  const canManageAssignments =
-    user?.role === "Admin" || user?.role === "Instructor";
+  const canManageAssignments = user?.role === "Instructor";
 
   // Formulari per krijimin e mesimit
   const [showLessonForm, setShowLessonForm] = useState(false);
@@ -62,11 +61,9 @@ function CourseDetails() {
   const [savingMaterial, setSavingMaterial] = useState({});
   const [completedLessons, setCompletedLessons] = useState({});
 
-  const canManageLessons =
-    user?.role === "Instructor" || user?.role === "Admin";
+  const canManageLessons = user?.role === "Instructor";
 
-  const canManageMaterials =
-    user?.role === "Instructor" || user?.role === "Admin";
+  const canManageMaterials = user?.role === "Instructor";
 
   useEffect(() => {
     activeCourseId.current = courseId;
@@ -109,8 +106,7 @@ function CourseDetails() {
       !targetLessonId ||
       !lessons.some(
         (lesson) =>
-          Number(lesson.LessonID ?? lesson.lessonId) ===
-          Number(targetLessonId),
+          Number(lesson.LessonID ?? lesson.lessonId) === Number(targetLessonId),
       ) ||
       materials[targetLessonId]
     ) {
@@ -502,8 +498,33 @@ function CourseDetails() {
     }
   }
 
+  useEffect(() => {
+    const assignmentId = Number(
+      new URLSearchParams(location.search).get("assignment"),
+    );
+
+    if (
+      user?.role !== "Instructor" ||
+      !Number.isInteger(assignmentId) ||
+      !assignments.some(
+        (assignment) => Number(assignment.AssignmentID) === assignmentId,
+      )
+    ) {
+      return;
+    }
+
+    if (!Object.hasOwn(submissionsByAssignment, assignmentId)) {
+      loadAssignmentSubmissions(assignmentId);
+    }
+  }, [assignments, location.search, submissionsByAssignment, user?.role]);
+
   async function toggleAssignmentSubmissions(assignmentId) {
-    const isOpen = Boolean(submissionPanels[assignmentId]);
+    const requestedAssignmentId = Number(
+      new URLSearchParams(location.search).get("assignment"),
+    );
+    const isOpen =
+      submissionPanels[assignmentId] ??
+      (user?.role === "Instructor" && requestedAssignmentId === assignmentId);
 
     setSubmissionPanels((previous) => ({
       ...previous,
@@ -686,7 +707,8 @@ function CourseDetails() {
       Swal.fire({
         icon: "error",
         title: "Gabim",
-        text: err.response?.data?.message || "Nuk u arrit të përditësohet detyra.",
+        text:
+          err.response?.data?.message || "Nuk u arrit të përditësohet detyra.",
       });
     } finally {
       setSavingAssignmentEdit(false);
@@ -712,7 +734,8 @@ function CourseDetails() {
       );
       setAssignments((previous) =>
         previous.filter(
-          (item) => Number(item.AssignmentID) !== Number(assignment.AssignmentID),
+          (item) =>
+            Number(item.AssignmentID) !== Number(assignment.AssignmentID),
         ),
       );
       setSubmissionsByAssignment((previous) => {
@@ -723,9 +746,7 @@ function CourseDetails() {
       Swal.fire({
         icon: response.data.warning ? "warning" : "success",
         title: response.data.warning ? "Kontrollo skedarët" : "Detyra u fshi",
-        text:
-          response.data.warning ||
-          "Detyra dhe dorëzimet e saj u fshinë.",
+        text: response.data.warning || "Detyra dhe dorëzimet e saj u fshinë.",
       });
     } catch (err) {
       Swal.fire({
@@ -784,7 +805,8 @@ function CourseDetails() {
       Swal.fire({
         icon: "error",
         title: "Gabim",
-        text: err.response?.data?.message || "Nuk u arrit të përditësohet mësimi.",
+        text:
+          err.response?.data?.message || "Nuk u arrit të përditësohet mësimi.",
       });
     } finally {
       setSavingLessonEdit(false);
@@ -913,7 +935,9 @@ function CourseDetails() {
       Swal.fire({
         icon: "error",
         title: "Gabim",
-        text: err.response?.data?.message || "Nuk u arrit të përditësohet materiali.",
+        text:
+          err.response?.data?.message ||
+          "Nuk u arrit të përditësohet materiali.",
       });
     } finally {
       setSavingMaterialEdit(false);
@@ -941,14 +965,17 @@ function CourseDetails() {
       await loadMaterials(lessonId);
       Swal.fire({
         icon: response.data.warning ? "warning" : "success",
-        title: response.data.warning ? "Kontrollo skedarin" : "Materiali u fshi",
+        title: response.data.warning
+          ? "Kontrollo skedarin"
+          : "Materiali u fshi",
         text: response.data.warning || "Materiali dhe skedari i tij u fshinë.",
       });
     } catch (err) {
       Swal.fire({
         icon: "error",
         title: "Gabim",
-        text: err.response?.data?.message || "Nuk u arrit të fshihet materiali.",
+        text:
+          err.response?.data?.message || "Nuk u arrit të fshihet materiali.",
       });
     }
   }
@@ -1095,7 +1122,7 @@ function CourseDetails() {
 
   return (
     <>
-      <main className="container py-5">
+      <main className="container py-5 d-flex flex-column">
         <Link to="/courses" className="btn btn-link px-0 mb-3">
           &larr; Kthehu te kurset
         </Link>
@@ -1104,103 +1131,265 @@ function CourseDetails() {
 
         <p className="text-secondary">Mesimet dhe materialet mesimore.</p>
 
+        {canManageLessons && (
+          <section
+            className="mb-5 bg-white p-4 rounded-4 shadow-sm border"
+            style={{ order: 1 }}
+          >
+            {/* Header-i i seksionit me butonin në të djathtë */}
+            <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+              <div>
+                <h2 className="fw-bold text-dark fs-5 mb-1">Course Lessons</h2>
+                <p className="text-muted small mb-0">
+                  Plan and structure your course curriculum
+                </p>
+              </div>
+
+              {!showLessonForm && (
+                <button
+                  type="button"
+                  className="btn text-white px-4 py-2 rounded-3 shadow-sm fw-semibold"
+                  style={{ backgroundColor: "#5640EE", fontSize: "0.85rem" }}
+                  onClick={() => setShowLessonForm(true)}
+                >
+                  + Add New Lesson
+                </button>
+              )}
+            </div>
+
+            {/* Forma e krijimit të mësimit të ri */}
+            {showLessonForm && (
+              <form
+                className="card card-body shadow-sm mb-4 border-0 bg-light rounded-4 p-4"
+                onSubmit={createLesson}
+              >
+                <h5 className="fw-bold mb-3 fs-6">Krijo mesim te ri</h5>
+
+                <div className="mb-3">
+                  <label className="form-label small fw-semibold text-secondary">
+                    Titulli i mesimit *
+                  </label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    required
+                    value={lessonForm.title}
+                    onChange={(e) =>
+                      setLessonForm({
+                        ...lessonForm,
+                        title: e.target.value,
+                      })
+                    }
+                    placeholder="p.sh. Variablat ne JavaScript"
+                  />
+                </div>
+
+                <div className="mb-3">
+                  <label className="form-label small fw-semibold text-secondary">
+                    Pershkrimi
+                  </label>
+                  <textarea
+                    className="form-control"
+                    rows="3"
+                    value={lessonForm.description}
+                    onChange={(e) =>
+                      setLessonForm({
+                        ...lessonForm,
+                        description: e.target.value,
+                      })
+                    }
+                    placeholder="Pershkruaj permbajtjen e mesimit"
+                  />
+                </div>
+
+                <div className="mb-3">
+                  <label className="form-label small fw-semibold text-secondary">
+                    URL-ja e videos (opsionale)
+                  </label>
+                  <input
+                    type="url"
+                    className="form-control"
+                    value={lessonForm.videoURL}
+                    onChange={(e) =>
+                      setLessonForm({
+                        ...lessonForm,
+                        videoURL: e.target.value,
+                      })
+                    }
+                    placeholder="https://..."
+                  />
+                </div>
+
+                <div className="mb-3">
+                  <label className="form-label small fw-semibold text-secondary">
+                    Numri rendor
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    className="form-control"
+                    required
+                    value={lessonForm.orderNumber}
+                    onChange={(e) =>
+                      setLessonForm({
+                        ...lessonForm,
+                        orderNumber: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+
+                <div className="d-flex flex-wrap gap-2">
+                  <button
+                    type="submit"
+                    className="btn text-white fw-semibold"
+                    style={{ backgroundColor: "#5640EE" }}
+                    disabled={savingLesson}
+                  >
+                    {savingLesson ? "Duke ruajtur..." : "Ruaj mesimin"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
+                    onClick={() => setShowLessonForm(false)}
+                    disabled={savingLesson}
+                  >
+                    Anulo
+                  </button>
+                </div>
+              </form>
+            )}
+          </section>
+        )}
+
         {/* Detyrat e kursit */}
-        <section className="mt-5 mb-5">
-          <h2 className="fw-bold mb-3">Detyrat e kursit</h2>
+        <section className="mt-5 mb-5" style={{ order: 3 }}>
+          <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+            <div>
+              <h2 className="fw-bold text-dark fs-5 mb-1">Detyrat e kursit</h2>
+              <p className="text-muted small mb-0">
+                Vlerësoni dhe ndiqni përparimin përmes detyrave
+              </p>
+            </div>
+          </div>
 
           {/* Krijimi i detyrave nga instruktori ose administratori */}
           {canManageAssignments && (
-            <form
-              className="card card-body shadow-sm mb-4"
-              onSubmit={createAssignment}
-            >
-              <h5 className="fw-bold">Krijo detyrë të re</h5>
+            <div className="card border-0 shadow-sm mb-4 rounded-4 p-2 bg-white">
+              <div className="card-body p-4">
+                <h5 className="fw-bold text-dark fs-6 mb-3">
+                  Krijo detyrë të re
+                </h5>
 
-              <div className="mb-3">
-                <label className="form-label">Titulli *</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  required
-                  maxLength={200}
-                  value={assignmentForm.title}
-                  onChange={(e) =>
-                    setAssignmentForm((previous) => ({
-                      ...previous,
-                      title: e.target.value,
-                    }))
-                  }
-                  placeholder="p.sh. Detyra e parë në HTML"
-                />
+                <form onSubmit={createAssignment}>
+                  <div className="mb-3">
+                    <label className="form-label small fw-semibold text-secondary">
+                      Titulli *
+                    </label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      required
+                      maxLength={200}
+                      value={assignmentForm.title}
+                      onChange={(e) =>
+                        setAssignmentForm((previous) => ({
+                          ...previous,
+                          title: e.target.value,
+                        }))
+                      }
+                      placeholder="p.sh. Detyra e parë në HTML"
+                    />
+                  </div>
+
+                  <div className="mb-3">
+                    <label className="form-label small fw-semibold text-secondary">
+                      Përshkrimi
+                    </label>
+                    <textarea
+                      className="form-control"
+                      rows={3}
+                      value={assignmentForm.description}
+                      onChange={(e) =>
+                        setAssignmentForm((previous) => ({
+                          ...previous,
+                          description: e.target.value,
+                        }))
+                      }
+                      placeholder="Përshkruaj kërkesat e detyrës..."
+                    />
+                  </div>
+
+                  <div className="row g-3 mb-3">
+                    <div className="col-md-6">
+                      <label className="form-label small fw-semibold text-secondary">
+                        Afati i dorëzimit
+                      </label>
+                      <input
+                        type="datetime-local"
+                        className="form-control"
+                        value={assignmentForm.dueDate}
+                        onChange={(e) =>
+                          setAssignmentForm((previous) => ({
+                            ...previous,
+                            dueDate: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className="col-md-6">
+                      <label className="form-label small fw-semibold text-secondary">
+                        Pikët maksimale *
+                      </label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        min="1"
+                        max="100"
+                        step="1"
+                        required
+                        value={assignmentForm.maxPoints}
+                        onChange={(e) =>
+                          setAssignmentForm((previous) => ({
+                            ...previous,
+                            maxPoints: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="btn text-white fw-semibold px-4 py-2 rounded-3 shadow-sm"
+                    style={{ backgroundColor: "#5640EE" }}
+                    disabled={savingAssignment}
+                  >
+                    {savingAssignment ? "Duke ruajtur..." : "+ Krijo detyrën"}
+                  </button>
+                </form>
               </div>
-
-              <div className="mb-3">
-                <label className="form-label">Përshkrimi</label>
-                <textarea
-                  className="form-control"
-                  rows={3}
-                  value={assignmentForm.description}
-                  onChange={(e) =>
-                    setAssignmentForm((previous) => ({
-                      ...previous,
-                      description: e.target.value,
-                    }))
-                  }
-                  placeholder="Përshkruaj kërkesat e detyrës"
-                />
-              </div>
-
-              <div className="mb-3">
-                <label className="form-label">Afati i dorëzimit</label>
-                <input
-                  type="datetime-local"
-                  className="form-control"
-                  value={assignmentForm.dueDate}
-                  onChange={(e) =>
-                    setAssignmentForm((previous) => ({
-                      ...previous,
-                      dueDate: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-
-              <div className="mb-3">
-                <label className="form-label">Pikët maksimale *</label>
-                <input
-                  type="number"
-                  className="form-control"
-                  min="1"
-                  max="100"
-                  step="1"
-                  required
-                  value={assignmentForm.maxPoints}
-                  onChange={(e) =>
-                    setAssignmentForm((previous) => ({
-                      ...previous,
-                      maxPoints: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="btn btn-primary align-self-start"
-                disabled={savingAssignment}
-              >
-                {savingAssignment ? "Duke ruajtur..." : "Krijo detyrën"}
-              </button>
-            </form>
+            </div>
           )}
 
           {/* Lista e detyrave */}
           {visibleAssignments.length === 0 ? (
-            <div className="alert alert-info">Nuk ka detyra për këtë kurs.</div>
+            <div className="alert alert-info border-0 shadow-sm rounded-4">
+              Nuk ka detyra për këtë kurs.
+            </div>
           ) : (
             <div className="d-flex flex-column gap-3">
               {visibleAssignments.map((assignment) => {
                 const assignmentId = assignment.AssignmentID;
+                const requestedAssignmentId = Number(
+                  new URLSearchParams(location.search).get("assignment"),
+                );
+                const submissionsAreOpen =
+                  submissionPanels[assignmentId] ??
+                  (user?.role === "Instructor" &&
+                    requestedAssignmentId === Number(assignmentId));
                 const existingSubmission = mySubmissions.find(
                   (submission) =>
                     Number(submission.AssignmentID) === Number(assignmentId) &&
@@ -1213,45 +1402,61 @@ function CourseDetails() {
 
                 return (
                   <article
-                    className="card border-0 shadow-sm"
+                    className="card border shadow-sm rounded-4 bg-white"
                     key={assignmentId}
+                    id={`assignment-${assignmentId}`}
                   >
                     <div className="card-body p-4">
-                      <h5 className="fw-bold">{assignment.Title}</h5>
-
-                      {canManageAssignments && (
-                        <div className="d-flex gap-2 mb-3">
-                          <button
-                            type="button"
-                            className="btn btn-outline-secondary btn-sm"
-                            onClick={() => startAssignmentEdit(assignment)}
+                      <div className="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                        <div>
+                          <span
+                            className="text-uppercase fw-bold text-muted"
+                            style={{
+                              fontSize: "0.65rem",
+                              letterSpacing: "0.05rem",
+                            }}
                           >
-                            Ndrysho detyrën
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-outline-danger btn-sm"
-                            onClick={() => removeAssignment(assignment)}
-                          >
-                            Fshi detyrën dhe dorëzimet
-                          </button>
+                            DETYRË KURSISHTE
+                          </span>
+                          <h5 className="fw-bold text-dark fs-6 mt-1 mb-1">
+                            {assignment.Title}
+                          </h5>
                         </div>
-                      )}
+
+                        {canManageAssignments && (
+                          <div className="d-flex gap-2">
+                            <button
+                              type="button"
+                              className="btn btn-outline-secondary btn-sm"
+                              onClick={() => startAssignmentEdit(assignment)}
+                            >
+                              Ndrysho
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline-danger btn-sm"
+                              onClick={() => removeAssignment(assignment)}
+                            >
+                              Fshi
+                            </button>
+                          </div>
+                        )}
+                      </div>
 
                       {editingAssignmentId === assignmentId && (
                         <form
-                          className="border rounded p-3 mb-3"
+                          className="border rounded-4 p-3 mb-3 bg-light"
                           onSubmit={saveAssignmentEdit}
                         >
                           <label
-                            className="form-label"
+                            className="form-label small fw-semibold text-secondary"
                             htmlFor={`assignment-title-${assignmentId}`}
                           >
                             Titulli
                           </label>
                           <input
                             id={`assignment-title-${assignmentId}`}
-                            className="form-control mb-2"
+                            className="form-control form-control-sm mb-2"
                             maxLength={200}
                             required
                             value={assignmentEditForm.title}
@@ -1262,15 +1467,16 @@ function CourseDetails() {
                               }))
                             }
                           />
+
                           <label
-                            className="form-label"
+                            className="form-label small fw-semibold text-secondary"
                             htmlFor={`assignment-description-${assignmentId}`}
                           >
                             Përshkrimi
                           </label>
                           <textarea
                             id={`assignment-description-${assignmentId}`}
-                            className="form-control mb-2"
+                            className="form-control form-control-sm mb-2"
                             rows={3}
                             value={assignmentEditForm.description}
                             onChange={(event) =>
@@ -1280,8 +1486,9 @@ function CourseDetails() {
                               }))
                             }
                           />
+
                           <label
-                            className="form-label"
+                            className="form-label small fw-semibold text-secondary"
                             htmlFor={`assignment-due-${assignmentId}`}
                           >
                             Afati
@@ -1289,7 +1496,7 @@ function CourseDetails() {
                           <input
                             id={`assignment-due-${assignmentId}`}
                             type="datetime-local"
-                            className="form-control mb-2"
+                            className="form-control form-control-sm mb-2"
                             value={assignmentEditForm.dueDate}
                             onChange={(event) =>
                               setAssignmentEditForm((previous) => ({
@@ -1298,8 +1505,9 @@ function CourseDetails() {
                               }))
                             }
                           />
+
                           <label
-                            className="form-label"
+                            className="form-label small fw-semibold text-secondary"
                             htmlFor={`assignment-points-${assignmentId}`}
                           >
                             Pikët maksimale
@@ -1307,7 +1515,7 @@ function CourseDetails() {
                           <input
                             id={`assignment-points-${assignmentId}`}
                             type="number"
-                            className="form-control mb-2"
+                            className="form-control form-control-sm mb-2"
                             min="1"
                             max="100"
                             required
@@ -1319,15 +1527,16 @@ function CourseDetails() {
                               }))
                             }
                           />
+
                           <label
-                            className="form-label"
+                            className="form-label small fw-semibold text-secondary"
                             htmlFor={`assignment-lesson-${assignmentId}`}
                           >
                             Mësimi (opsional)
                           </label>
                           <select
                             id={`assignment-lesson-${assignmentId}`}
-                            className="form-select mb-3"
+                            className="form-select form-select-sm mb-3"
                             value={assignmentEditForm.lessonId}
                             onChange={(event) =>
                               setAssignmentEditForm((previous) => ({
@@ -1346,9 +1555,10 @@ function CourseDetails() {
                               </option>
                             ))}
                           </select>
+
                           <div className="d-flex gap-2">
                             <button
-                              className="btn btn-primary btn-sm"
+                              className="btn btn-primary btn-sm fw-semibold"
                               disabled={savingAssignmentEdit}
                             >
                               {savingAssignmentEdit
@@ -1368,52 +1578,49 @@ function CourseDetails() {
                       )}
 
                       {assignment.Description && (
-                        <p className="text-secondary">
+                        <p className="text-secondary small mb-3">
                           {assignment.Description}
                         </p>
                       )}
 
-                      <p className="mb-1">
-                        <strong>Afati:</strong>{" "}
-                        {formatAssignmentDate(assignment.DueDate)}
-                      </p>
-
-                      <p className="mb-3">
-                        <strong>Pikët maksimale:</strong> {assignment.MaxPoints}
-                      </p>
+                      <div className="d-flex gap-4 small text-muted mb-3 pt-2 border-top">
+                        <span>
+                          <strong>Afati:</strong>{" "}
+                          {formatAssignmentDate(assignment.DueDate)}
+                        </span>
+                        <span>
+                          <strong>Pikët:</strong> {assignment.MaxPoints}
+                        </span>
+                      </div>
 
                       {user?.role === "Student" && (
                         <>
                           {existingSubmission ? (
-                            <div className="alert alert-success mb-0">
-                              <p className="fw-bold mb-1">
+                            <div className="alert alert-success border-0 shadow-sm rounded-4 mb-0 p-3">
+                              <p className="fw-bold mb-1 text-success">
                                 Detyra është dorëzuar
                               </p>
-
-                              <p className="mb-1">
+                              <p className="small mb-1 text-secondary">
                                 Data:{" "}
                                 {formatAssignmentDate(
                                   existingSubmission.SubmittedAt,
                                 )}
                               </p>
-
-                              <p className="mb-1">
+                              <p className="small mb-1 text-secondary">
                                 Nota:{" "}
                                 {existingSubmission.Grade == null
                                   ? "Në pritje të vlerësimit"
                                   : `${existingSubmission.Grade} / ${assignment.MaxPoints}`}
                               </p>
-
                               {existingSubmission.Feedback && (
-                                <p className="mb-0">
+                                <p className="small mb-2 text-secondary">
                                   <strong>Komenti:</strong>{" "}
                                   {existingSubmission.Feedback}
                                 </p>
                               )}
-
                               <button
                                 type="button"
-                                className="btn btn-outline-primary btn-sm mt-2"
+                                className="btn btn-outline-primary btn-sm fw-semibold"
                                 onClick={() =>
                                   downloadSubmissionFile(existingSubmission)
                                 }
@@ -1422,18 +1629,17 @@ function CourseDetails() {
                               </button>
                             </div>
                           ) : deadlinePassed ? (
-                            <div className="alert alert-warning mb-0">
+                            <div className="alert alert-warning border-0 shadow-sm rounded-4 mb-0 p-3 small">
                               Afati i dorëzimit ka kaluar.
                             </div>
                           ) : (
-                            <div className="border rounded p-3">
-                              <label className="form-label">
+                            <div className="border rounded-4 p-3 bg-light">
+                              <label className="form-label small fw-semibold text-secondary">
                                 Zgjidh skedarin e detyrës
                               </label>
-
                               <input
                                 type="file"
-                                className="form-control mb-3"
+                                className="form-control form-control-sm mb-3"
                                 accept=".pdf,.doc,.docx,.ppt,.pptx"
                                 onChange={(e) =>
                                   setAssignmentFiles((previous) => ({
@@ -1442,10 +1648,10 @@ function CourseDetails() {
                                   }))
                                 }
                               />
-
                               <button
                                 type="button"
-                                className="btn btn-success"
+                                className="btn text-white btn-sm fw-semibold px-3 py-2"
+                                style={{ backgroundColor: "#5640EE" }}
                                 disabled={Boolean(
                                   savingSubmission[assignmentId],
                                 )}
@@ -1463,9 +1669,9 @@ function CourseDetails() {
                       )}
 
                       {canManageAssignments && (
-                        <div className="border rounded p-3 mt-3 bg-light">
+                        <div className="border rounded-4 p-3 mt-3 bg-light">
                           <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                            <h6 className="fw-bold mb-0">
+                            <h6 className="fw-bold mb-0 text-dark fs-6">
                               Dorëzimet e studentëve
                             </h6>
                             <button
@@ -1475,16 +1681,16 @@ function CourseDetails() {
                                 toggleAssignmentSubmissions(assignmentId)
                               }
                             >
-                              {submissionPanels[assignmentId]
+                              {submissionsAreOpen
                                 ? "Mbyll dorëzimet"
                                 : "Shiko dorëzimet"}
                             </button>
                           </div>
 
-                          {submissionPanels[assignmentId] && (
-                            <div className="mt-3">
+                          {submissionsAreOpen && (
+                            <div className="mt-3 pt-3 border-top">
                               {loadingSubmissions[assignmentId] ? (
-                                <p className="text-secondary mb-0">
+                                <p className="text-secondary small mb-0">
                                   Duke ngarkuar dorëzimet...
                                 </p>
                               ) : submissionsByAssignment[assignmentId]
@@ -1498,15 +1704,15 @@ function CourseDetails() {
 
                                       return (
                                         <div
-                                          className="card"
+                                          className="card border shadow-sm rounded-3 bg-white"
                                           key={submission.SubmissionID}
                                         >
-                                          <div className="card-body">
-                                            <h6 className="fw-bold">
+                                          <div className="card-body p-3">
+                                            <h6 className="fw-bold text-dark fs-6 mb-1">
                                               {submission.FirstName}{" "}
                                               {submission.LastName}
                                             </h6>
-                                            <p className="small text-secondary mb-2">
+                                            <p className="small text-muted mb-2">
                                               {submission.Email} ·{" "}
                                               {formatAssignmentDate(
                                                 submission.SubmittedAt,
@@ -1514,29 +1720,29 @@ function CourseDetails() {
                                             </p>
                                             <button
                                               type="button"
-                                              className="btn btn-link p-0 mb-3"
+                                              className="btn btn-link btn-sm p-0 mb-3 text-decoration-none fw-semibold"
                                               onClick={() =>
                                                 downloadSubmissionFile(
                                                   submission,
                                                 )
                                               }
                                             >
-                                              Shkarko punën e studentit
+                                              📄 Shkarko punën e studentit
                                             </button>
 
                                             <div className="row g-2">
                                               <div className="col-md-3">
                                                 <label
-                                                  className="form-label"
+                                                  className="form-label small fw-semibold text-secondary"
                                                   htmlFor={`grade-${submission.SubmissionID}`}
                                                 >
-                                                  Nota (0–
-                                                  {assignment.MaxPoints})
+                                                  Nota (0–{assignment.MaxPoints}
+                                                  )
                                                 </label>
                                                 <input
                                                   id={`grade-${submission.SubmissionID}`}
                                                   type="number"
-                                                  className="form-control"
+                                                  className="form-control form-control-sm"
                                                   min="0"
                                                   max={assignment.MaxPoints}
                                                   step="1"
@@ -1560,14 +1766,14 @@ function CourseDetails() {
                                               </div>
                                               <div className="col-md-9">
                                                 <label
-                                                  className="form-label"
+                                                  className="form-label small fw-semibold text-secondary"
                                                   htmlFor={`feedback-${submission.SubmissionID}`}
                                                 >
                                                   Komenti për studentin
                                                 </label>
                                                 <textarea
                                                   id={`feedback-${submission.SubmissionID}`}
-                                                  className="form-control"
+                                                  className="form-control form-control-sm"
                                                   rows={2}
                                                   value={
                                                     gradeForm.feedback || ""
@@ -1589,16 +1795,19 @@ function CourseDetails() {
                                                 />
                                               </div>
                                             </div>
+
                                             <button
                                               type="button"
-                                              className="btn btn-primary btn-sm mt-3"
+                                              className="btn text-white btn-sm mt-3 fw-semibold px-3 py-1"
+                                              style={{
+                                                backgroundColor: "#5640EE",
+                                              }}
                                               disabled={
                                                 Boolean(
                                                   savingGrades[
                                                     submission.SubmissionID
                                                   ],
-                                                ) ||
-                                                gradeForm.grade === ""
+                                                ) || gradeForm.grade === ""
                                               }
                                               onClick={() =>
                                                 gradeAssignmentSubmission(
@@ -1620,7 +1829,7 @@ function CourseDetails() {
                                   )}
                                 </div>
                               ) : (
-                                <p className="text-secondary mb-0">
+                                <p className="text-secondary small mb-0">
                                   Ende nuk ka dorëzime për këtë detyrë.
                                 </p>
                               )}
@@ -1636,547 +1845,487 @@ function CourseDetails() {
           )}
         </section>
 
-        <CourseQuizzes
-          courseId={courseId}
-          lessons={lessons}
-          userRole={user?.role}
-        />
+        <div style={{ order: 4 }}>
+          <CourseQuizzes
+            courseId={courseId}
+            lessons={lessons}
+            userRole={user?.role}
+          />
+        </div>
 
-        {/* Krijimi i mesimit - vetem Instructor dhe Admin */}
-        {canManageLessons && (
-          <div className="mb-4">
-            {!showLessonForm ? (
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => setShowLessonForm(true)}
-              >
-                + Shto mesim te ri
-              </button>
-            ) : (
-              <form
-                className="card card-body shadow-sm"
-                onSubmit={createLesson}
-              >
-                <h5 className="fw-bold mb-3">Krijo mesim te ri</h5>
+        <section className="mb-5" style={{ order: 2 }}>
+          <h2 className="fw-bold mb-3">Mësimet e kursit</h2>
+          {loading && <p>Duke ngarkuar mesimet...</p>}
 
-                <div className="mb-3">
-                  <label className="form-label">Titulli i mesimit *</label>
+          {error && <div className="alert alert-danger">{error}</div>}
 
-                  <input
-                    type="text"
-                    className="form-control"
-                    required
-                    value={lessonForm.title}
-                    onChange={(e) =>
-                      setLessonForm({
-                        ...lessonForm,
-                        title: e.target.value,
-                      })
-                    }
-                    placeholder="p.sh. Variablat ne JavaScript"
-                  />
-                </div>
+          {!loading && !error && lessons.length === 0 && (
+            <div className="alert alert-info">
+              Ky kurs nuk ka mesime te publikuara.
+              {canManageLessons &&
+                " Perdore butonin 'Shto mesim te ri' per te krijuar mesimin e pare."}
+            </div>
+          )}
 
-                <div className="mb-3">
-                  <label className="form-label">Pershkrimi</label>
+          <div className="d-flex flex-column gap-3">
+            {lessons.map((lesson, index) => {
+              const lessonId = lesson.LessonID ?? lesson.lessonId;
 
-                  <textarea
-                    className="form-control"
-                    rows="3"
-                    value={lessonForm.description}
-                    onChange={(e) =>
-                      setLessonForm({
-                        ...lessonForm,
-                        description: e.target.value,
-                      })
-                    }
-                    placeholder="Pershkruaj permbajtjen e mesimit"
-                  />
-                </div>
-
-                <div className="mb-3">
-                  <label className="form-label">
-                    URL-ja e videos (opsionale)
-                  </label>
-
-                  <input
-                    type="url"
-                    className="form-control"
-                    value={lessonForm.videoURL}
-                    onChange={(e) =>
-                      setLessonForm({
-                        ...lessonForm,
-                        videoURL: e.target.value,
-                      })
-                    }
-                    placeholder="https://..."
-                  />
-                </div>
-
-                <div className="mb-3">
-                  <label className="form-label">Numri rendor</label>
-
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    className="form-control"
-                    required
-                    value={lessonForm.orderNumber}
-                    onChange={(e) =>
-                      setLessonForm({
-                        ...lessonForm,
-                        orderNumber: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-
-                <div className="d-flex flex-wrap gap-2">
-                  <button
-                    type="submit"
-                    className="btn btn-success"
-                    disabled={savingLesson}
-                  >
-                    {savingLesson ? "Duke ruajtur..." : "Ruaj mesimin"}
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn btn-outline-secondary"
-                    onClick={() => setShowLessonForm(false)}
-                    disabled={savingLesson}
-                  >
-                    Anulo
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        )}
-
-        {loading && <p>Duke ngarkuar mesimet...</p>}
-
-        {error && <div className="alert alert-danger">{error}</div>}
-
-        {!loading && !error && lessons.length === 0 && (
-          <div className="alert alert-info">
-            Ky kurs nuk ka mesime te publikuara.
-            {canManageLessons &&
-              " Perdore butonin 'Shto mesim te ri' per te krijuar mesimin e pare."}
-          </div>
-        )}
-
-        <div className="d-flex flex-column gap-3">
-          {lessons.map((lesson, index) => {
-            const lessonId = lesson.LessonID ?? lesson.lessonId;
-
-            return (
-              <div className="card border-0 shadow-sm" key={lessonId}>
-                <div className="card-body p-4">
-                  <h5 className="fw-bold">
-                    {index + 1}. {lesson.Title ?? lesson.title}
-                  </h5>
-
-                  <p className="text-secondary">
-                    {lesson.Description ?? lesson.description ?? ""}
-                  </p>
-
-                  {canManageLessons && (
-                    <div className="d-flex gap-2 flex-wrap mb-3">
-                      <button
-                        type="button"
-                        className="btn btn-outline-secondary btn-sm"
-                        onClick={() => startLessonEdit(lesson)}
-                      >
-                        Ndrysho mësimin/videon
-                      </button>
-                      {(lesson.VideoURL || lesson.videoURL) && (
-                        <button
-                          type="button"
-                          className="btn btn-outline-danger btn-sm"
-                          onClick={() => removeLessonVideo(lesson)}
+              return (
+                <div
+                  className="card border shadow-sm rounded-4 p-3 bg-white mb-3"
+                  key={lessonId}
+                >
+                  <div className="card-body p-2">
+                    <div className="d-flex justify-content-between align-items-start">
+                      <div>
+                        <span
+                          className="text-uppercase fw-bold text-muted"
+                          style={{
+                            fontSize: "0.65rem",
+                            letterSpacing: "0.05rem",
+                          }}
                         >
-                          Hiq videon
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="btn btn-outline-danger btn-sm"
-                        onClick={() => removeLesson(lesson)}
+                          MODULE {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <h5 className="fw-bold text-dark fs-6 mt-1 mb-1">
+                          {lesson.Title ?? lesson.title}
+                        </h5>
+                        <p className="text-muted small mb-2">
+                          {lesson.Description ?? lesson.description ?? ""}
+                        </p>
+                      </div>
+
+                      <span
+                        className="badge bg-success bg-opacity-10 text-success fw-semibold px-2 py-1"
+                        style={{ fontSize: "0.7rem" }}
                       >
-                        Fshi mësimin
-                      </button>
+                        Published
+                      </span>
                     </div>
-                  )}
 
-                  {editingLessonId === lessonId && (
-                    <form
-                      className="border rounded p-3 mb-3"
-                      onSubmit={saveLessonEdit}
-                    >
-                      <label
-                        className="form-label"
-                        htmlFor={`lesson-title-${lessonId}`}
-                      >
-                        Titulli
-                      </label>
-                      <input
-                        id={`lesson-title-${lessonId}`}
-                        className="form-control mb-2"
-                        required
-                        value={lessonEditForm.title}
-                        onChange={(event) =>
-                          setLessonEditForm((previous) => ({
-                            ...previous,
-                            title: event.target.value,
-                          }))
-                        }
-                      />
-                      <label
-                        className="form-label"
-                        htmlFor={`lesson-description-${lessonId}`}
-                      >
-                        Përshkrimi
-                      </label>
-                      <textarea
-                        id={`lesson-description-${lessonId}`}
-                        className="form-control mb-2"
-                        rows={3}
-                        value={lessonEditForm.description}
-                        onChange={(event) =>
-                          setLessonEditForm((previous) => ({
-                            ...previous,
-                            description: event.target.value,
-                          }))
-                        }
-                      />
-                      <label
-                        className="form-label"
-                        htmlFor={`lesson-video-${lessonId}`}
-                      >
-                        URL-ja e videos
-                      </label>
-                      <input
-                        id={`lesson-video-${lessonId}`}
-                        type="url"
-                        className="form-control mb-2"
-                        value={lessonEditForm.videoURL}
-                        onChange={(event) =>
-                          setLessonEditForm((previous) => ({
-                            ...previous,
-                            videoURL: event.target.value,
-                          }))
-                        }
-                      />
-                      <label
-                        className="form-label"
-                        htmlFor={`lesson-order-${lessonId}`}
-                      >
-                        Numri rendor
-                      </label>
-                      <input
-                        id={`lesson-order-${lessonId}`}
-                        type="number"
-                        min="1"
-                        step="1"
-                        className="form-control mb-3"
-                        required
-                        value={lessonEditForm.orderNumber}
-                        onChange={(event) =>
-                          setLessonEditForm((previous) => ({
-                            ...previous,
-                            orderNumber: event.target.value,
-                          }))
-                        }
-                      />
-                      <div className="d-flex gap-2">
-                        <button
-                          className="btn btn-primary btn-sm"
-                          disabled={savingLessonEdit}
-                        >
-                          {savingLessonEdit ? "Duke ruajtur..." : "Ruaj"}
-                        </button>
+                    {canManageLessons && (
+                      <div className="d-flex gap-2 flex-wrap mt-3 pt-2 border-top">
                         <button
                           type="button"
                           className="btn btn-outline-secondary btn-sm"
-                          disabled={savingLessonEdit}
-                          onClick={() => setEditingLessonId(null)}
+                          onClick={() => startLessonEdit(lesson)}
                         >
-                          Anulo
+                          Ndrysho mësimin/videon
+                        </button>
+                        {(lesson.VideoURL || lesson.videoURL) && (
+                          <button
+                            type="button"
+                            className="btn btn-outline-danger btn-sm"
+                            onClick={() => removeLessonVideo(lesson)}
+                          >
+                            Hiq videon
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="btn btn-outline-danger btn-sm"
+                          onClick={() => removeLesson(lesson)}
+                        >
+                          Fshi mësimin
                         </button>
                       </div>
-                    </form>
-                  )}
-
-                  {(lesson.VideoURL || lesson.videoURL) && (
-                    <p>
-                      <a
-                        href={lesson.VideoURL ?? lesson.videoURL}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Hap videon e mesimit
-                      </a>
-                    </p>
-                  )}
-
-                  <div className="d-flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className="btn btn-outline-primary btn-sm"
-                      onClick={() => loadMaterials(lessonId)}
-                    >
-                      Shfaq materialet
-                    </button>
-
-                    {user?.role === "Student" && (
-                      <button
-                        type="button"
-                        className={`btn btn-sm ${
-                          completedLessons[lessonId]
-                            ? "btn-outline-secondary"
-                            : "btn-success"
-                        }`}
-                        onClick={() => toggleLessonProgress(lessonId)}
-                      >
-                        {completedLessons[lessonId]
-                          ? "Anulo përfundimin"
-                          : "Shëno si të përfunduar"}
-                      </button>
                     )}
-                  </div>
 
-                  {/* Shtimi i materialeve */}
-                  {canManageMaterials && (
-                    <div className="border rounded p-3 mt-3 bg-light">
-                      <h6 className="fw-bold mb-3">Shto material mesimor</h6>
-
-                      <div className="mb-3">
-                        <label className="form-label">
-                          Titulli i materialit *
-                        </label>
-
-                        <input
-                          type="text"
-                          className="form-control"
-                          placeholder="p.sh. Prezantimi i mesimit"
-                          value={materialForms[lessonId]?.title || ""}
-                          onChange={(e) =>
-                            updateMaterialForm(
-                              lessonId,
-                              "title",
-                              e.target.value,
-                            )
-                          }
-                        />
-                      </div>
-
-                      <div className="mb-3">
-                        <label className="form-label">Zgjidh skedarin *</label>
-
-                        <input
-                          type="file"
-                          className="form-control"
-                          accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-
-                            updateMaterialForm(lessonId, "file", file || null);
-                          }}
-                        />
-                      </div>
-
-                      <div className="mb-3">
-                        <label className="form-label">Lloji i materialit</label>
-
-                        <select
-                          className="form-select"
-                          value={
-                            materialForms[lessonId]?.materialType || "Link"
-                          }
-                          onChange={(e) =>
-                            updateMaterialForm(
-                              lessonId,
-                              "materialType",
-                              e.target.value,
-                            )
-                          }
+                    {editingLessonId === lessonId && (
+                      <form
+                        className="border rounded p-3 mt-3 bg-light"
+                        onSubmit={saveLessonEdit}
+                      >
+                        <label
+                          className="form-label small fw-semibold text-secondary"
+                          htmlFor={`lesson-title-${lessonId}`}
                         >
-                          <option value="Link">Link</option>
-                          <option value="PDF">PDF</option>
-                          <option value="Video">Video</option>
-                          <option value="Document">Dokument</option>
-                        </select>
-                      </div>
+                          Titulli
+                        </label>
+                        <input
+                          id={`lesson-title-${lessonId}`}
+                          className="form-control form-control-sm mb-2"
+                          required
+                          value={lessonEditForm.title}
+                          onChange={(event) =>
+                            setLessonEditForm((previous) => ({
+                              ...previous,
+                              title: event.target.value,
+                            }))
+                          }
+                        />
+                        <label
+                          className="form-label small fw-semibold text-secondary"
+                          htmlFor={`lesson-description-${lessonId}`}
+                        >
+                          Përshkrimi
+                        </label>
+                        <textarea
+                          id={`lesson-description-${lessonId}`}
+                          className="form-control form-control-sm mb-2"
+                          rows={3}
+                          value={lessonEditForm.description}
+                          onChange={(event) =>
+                            setLessonEditForm((previous) => ({
+                              ...previous,
+                              description: event.target.value,
+                            }))
+                          }
+                        />
+                        <label
+                          className="form-label small fw-semibold text-secondary"
+                          htmlFor={`lesson-video-${lessonId}`}
+                        >
+                          URL-ja e videos
+                        </label>
+                        <input
+                          id={`lesson-video-${lessonId}`}
+                          type="url"
+                          className="form-control form-control-sm mb-2"
+                          value={lessonEditForm.videoURL}
+                          onChange={(event) =>
+                            setLessonEditForm((previous) => ({
+                              ...previous,
+                              videoURL: event.target.value,
+                            }))
+                          }
+                        />
+                        <label
+                          className="form-label small fw-semibold text-secondary"
+                          htmlFor={`lesson-order-${lessonId}`}
+                        >
+                          Numri rendor
+                        </label>
+                        <input
+                          id={`lesson-order-${lessonId}`}
+                          type="number"
+                          min="1"
+                          step="1"
+                          className="form-control form-control-sm mb-3"
+                          required
+                          value={lessonEditForm.orderNumber}
+                          onChange={(event) =>
+                            setLessonEditForm((previous) => ({
+                              ...previous,
+                              orderNumber: event.target.value,
+                            }))
+                          }
+                        />
+                        <div className="d-flex gap-2">
+                          <button
+                            className="btn btn-primary btn-sm fw-semibold"
+                            disabled={savingLessonEdit}
+                          >
+                            {savingLessonEdit ? "Duke ruajtur..." : "Ruaj"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline-secondary btn-sm"
+                            disabled={savingLessonEdit}
+                            onClick={() => setEditingLessonId(null)}
+                          >
+                            Anulo
+                          </button>
+                        </div>
+                      </form>
+                    )}
 
+                    {(lesson.VideoURL || lesson.videoURL) && (
+                      <p>
+                        <a
+                          href={lesson.VideoURL ?? lesson.videoURL}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Hap videon e mesimit
+                        </a>
+                      </p>
+                    )}
+
+                    <div className="d-flex flex-wrap gap-2">
                       <button
                         type="button"
-                        className="btn btn-primary btn-sm"
-                        disabled={Boolean(savingMaterial[lessonId])}
-                        onClick={() => addMaterial(lessonId)}
+                        className="btn btn-outline-primary btn-sm"
+                        onClick={() => loadMaterials(lessonId)}
                       >
-                        {savingMaterial[lessonId]
-                          ? "Duke ruajtur..."
-                          : "Shto materialin"}
+                        Shfaq materialet
                       </button>
-                    </div>
-                  )}
 
-                  {/* Lista e materialeve */}
-                  {materials[lessonId] && (
-                    <div className="mt-3">
-                      <h6 className="fw-bold">Materialet</h6>
-
-                      {materials[lessonId].length === 0 ? (
-                        <p className="text-secondary">
-                          Nuk ka materiale per kete mesim.
-                        </p>
-                      ) : (
-                        <ul className="mb-0">
-                          {materials[lessonId].map((material) => (
-                            <li
-                              id={`material-${material.MaterialID ?? material.materialId}`}
-                              key={material.MaterialID ?? material.materialId}
-                            >
-                              <button
-                                type="button"
-                                className="btn btn-link p-0 text-decoration-none"
-                                onClick={() =>
-                                  downloadMaterial(
-                                    lesson.LessonID ||
-                                      lesson.lessonId ||
-                                      lessonId,
-                                    material,
-                                  )
-                                }
-                              >
-                                {material.Title || material.title}
-                              </button>
-
-                              {material.MaterialType && (
-                                <span className="text-secondary ms-2">
-                                  ({material.MaterialType})
-                                </span>
-                              )}
-                              {canManageMaterials && (
-                                <span className="ms-2">
-                                  <button
-                                    type="button"
-                                    className="btn btn-link btn-sm p-0 me-2"
-                                    onClick={() => startMaterialEdit(material)}
-                                  >
-                                    Ndrysho
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn btn-link btn-sm p-0 text-danger"
-                                    onClick={() =>
-                                      removeMaterial(lessonId, material)
-                                    }
-                                  >
-                                    Fshi
-                                  </button>
-                                </span>
-                              )}
-                              {editingMaterialId ===
-                                (material.MaterialID ?? material.materialId) && (
-                                <div className="border rounded p-3 mt-2">
-                                  <label
-                                    className="form-label"
-                                    htmlFor={`material-title-${editingMaterialId}`}
-                                  >
-                                    Titulli
-                                  </label>
-                                  <input
-                                    id={`material-title-${editingMaterialId}`}
-                                    className="form-control mb-2"
-                                    value={materialEditForm.title}
-                                    onChange={(event) =>
-                                      setMaterialEditForm((previous) => ({
-                                        ...previous,
-                                        title: event.target.value,
-                                      }))
-                                    }
-                                  />
-                                  <label
-                                    className="form-label"
-                                    htmlFor={`material-type-${editingMaterialId}`}
-                                  >
-                                    Lloji
-                                  </label>
-                                  <select
-                                    id={`material-type-${editingMaterialId}`}
-                                    className="form-select mb-2"
-                                    value={materialEditForm.materialType}
-                                    onChange={(event) =>
-                                      setMaterialEditForm((previous) => ({
-                                        ...previous,
-                                        materialType: event.target.value,
-                                      }))
-                                    }
-                                  >
-                                    <option value="Link">Link</option>
-                                    <option value="PDF">PDF</option>
-                                    <option value="Video">Video</option>
-                                    <option value="Document">Dokument</option>
-                                  </select>
-                                  <label
-                                    className="form-label"
-                                    htmlFor={`material-file-${editingMaterialId}`}
-                                  >
-                                    Zëvendëso skedarin (opsional)
-                                  </label>
-                                  <input
-                                    id={`material-file-${editingMaterialId}`}
-                                    type="file"
-                                    className="form-control mb-3"
-                                    accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png"
-                                    onChange={(event) =>
-                                      setMaterialEditForm((previous) => ({
-                                        ...previous,
-                                        file: event.target.files?.[0] || null,
-                                      }))
-                                    }
-                                  />
-                                  <div className="d-flex gap-2">
-                                    <button
-                                      type="button"
-                                      className="btn btn-primary btn-sm"
-                                      disabled={savingMaterialEdit}
-                                      onClick={() =>
-                                        saveMaterialEdit(lessonId)
-                                      }
-                                    >
-                                      {savingMaterialEdit
-                                        ? "Duke ruajtur..."
-                                        : "Ruaj"}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="btn btn-outline-secondary btn-sm"
-                                      disabled={savingMaterialEdit}
-                                      onClick={() =>
-                                        setEditingMaterialId(null)
-                                      }
-                                    >
-                                      Anulo
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
+                      {user?.role === "Student" && (
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${
+                            completedLessons[lessonId]
+                              ? "btn-outline-secondary"
+                              : "btn-success"
+                          }`}
+                          onClick={() => toggleLessonProgress(lessonId)}
+                        >
+                          {completedLessons[lessonId]
+                            ? "Anulo përfundimin"
+                            : "Shëno si të përfunduar"}
+                        </button>
                       )}
                     </div>
-                  )}
+
+                    {/* Shtimi i materialeve */}
+                    {canManageMaterials && (
+                      <div className="card border shadow-sm rounded-4 p-4 bg-light mt-4">
+                        <h6 className="fw-bold mb-3 text-dark fs-6">
+                          Shto material mësimor
+                        </h6>
+
+                        <div className="mb-3">
+                          <label className="form-label small fw-semibold text-secondary">
+                            Titulli i materialit *
+                          </label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            placeholder="p.sh. Prezantimi i mësimit"
+                            value={materialForms[lessonId]?.title || ""}
+                            onChange={(e) =>
+                              updateMaterialForm(
+                                lessonId,
+                                "title",
+                                e.target.value,
+                              )
+                            }
+                          />
+                        </div>
+
+                        <div className="mb-3">
+                          <label className="form-label small fw-semibold text-secondary">
+                            Zgjidh skedarin *
+                          </label>
+                          <input
+                            type="file"
+                            className="form-control"
+                            accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              updateMaterialForm(
+                                lessonId,
+                                "file",
+                                file || null,
+                              );
+                            }}
+                          />
+                        </div>
+
+                        <div className="mb-3">
+                          <label className="form-label small fw-semibold text-secondary">
+                            Lloji i materialit
+                          </label>
+                          <select
+                            className="form-select"
+                            value={
+                              materialForms[lessonId]?.materialType || "Link"
+                            }
+                            onChange={(e) =>
+                              updateMaterialForm(
+                                lessonId,
+                                "materialType",
+                                e.target.value,
+                              )
+                            }
+                          >
+                            <option value="Link">Link</option>
+                            <option value="PDF">PDF</option>
+                            <option value="Video">Video</option>
+                            <option value="Document">Dokument</option>
+                          </select>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="btn text-white btn-sm fw-semibold align-self-start px-3 py-2"
+                          style={{ backgroundColor: "#5640EE" }}
+                          disabled={Boolean(savingMaterial[lessonId])}
+                          onClick={() => addMaterial(lessonId)}
+                        >
+                          {savingMaterial[lessonId]
+                            ? "Duke ruajtur..."
+                            : "Shto materialin"}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Lista e materialeve */}
+                    {materials[lessonId] && (
+                      <div className="mt-4 pt-3 border-top">
+                        <h6 className="fw-bold text-dark fs-6 mb-3">
+                          Materialet e kursit
+                        </h6>
+
+                        {materials[lessonId].length === 0 ? (
+                          <p className="text-secondary small mb-0">
+                            Nuk ka materiale për këtë mësim.
+                          </p>
+                        ) : (
+                          <ul className="list-unstyled d-flex flex-column gap-2 mb-0">
+                            {materials[lessonId].map((material) => (
+                              <li
+                                className="p-3 border rounded-3 bg-white shadow-sm d-flex flex-column gap-2"
+                                id={`material-${material.MaterialID ?? material.materialId}`}
+                                key={material.MaterialID ?? material.materialId}
+                              >
+                                <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                  <div className="d-flex align-items-center gap-2">
+                                    <button
+                                      type="button"
+                                      className="btn btn-link p-0 text-decoration-none fw-semibold text-dark"
+                                      onClick={() =>
+                                        downloadMaterial(
+                                          lesson.LessonID ||
+                                            lesson.lessonId ||
+                                            lessonId,
+                                          material,
+                                        )
+                                      }
+                                    >
+                                      📄 {material.Title || material.title}
+                                    </button>
+
+                                    {material.MaterialType && (
+                                      <span
+                                        className="badge bg-secondary bg-opacity-10 text-secondary fw-medium px-2 py-1"
+                                        style={{ fontSize: "0.7rem" }}
+                                      >
+                                        {material.MaterialType}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {canManageMaterials && (
+                                    <div className="d-flex gap-2">
+                                      <button
+                                        type="button"
+                                        className="btn btn-outline-secondary btn-sm py-0 px-2"
+                                        style={{ fontSize: "0.8rem" }}
+                                        onClick={() =>
+                                          startMaterialEdit(material)
+                                        }
+                                      >
+                                        Ndrysho
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="btn btn-outline-danger btn-sm py-0 px-2"
+                                        style={{ fontSize: "0.8rem" }}
+                                        onClick={() =>
+                                          removeMaterial(lessonId, material)
+                                        }
+                                      >
+                                        Fshi
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {editingMaterialId ===
+                                  (material.MaterialID ??
+                                    material.materialId) && (
+                                  <div className="border rounded p-3 mt-2 bg-light">
+                                    <label
+                                      className="form-label small fw-semibold text-secondary"
+                                      htmlFor={`material-title-${editingMaterialId}`}
+                                    >
+                                      Titulli
+                                    </label>
+                                    <input
+                                      id={`material-title-${editingMaterialId}`}
+                                      className="form-control form-control-sm mb-2"
+                                      value={materialEditForm.title}
+                                      onChange={(event) =>
+                                        setMaterialEditForm((previous) => ({
+                                          ...previous,
+                                          title: event.target.value,
+                                        }))
+                                      }
+                                    />
+
+                                    <label
+                                      className="form-label small fw-semibold text-secondary"
+                                      htmlFor={`material-type-${editingMaterialId}`}
+                                    >
+                                      Lloji
+                                    </label>
+                                    <select
+                                      id={`material-type-${editingMaterialId}`}
+                                      className="form-select form-select-sm mb-2"
+                                      value={materialEditForm.materialType}
+                                      onChange={(event) =>
+                                        setMaterialEditForm((previous) => ({
+                                          ...previous,
+                                          materialType: event.target.value,
+                                        }))
+                                      }
+                                    >
+                                      <option value="Link">Link</option>
+                                      <option value="PDF">PDF</option>
+                                      <option value="Video">Video</option>
+                                      <option value="Document">Dokument</option>
+                                    </select>
+
+                                    <label
+                                      className="form-label small fw-semibold text-secondary"
+                                      htmlFor={`material-file-${editingMaterialId}`}
+                                    >
+                                      Zëvendëso skedarin (opsional)
+                                    </label>
+                                    <input
+                                      id={`material-file-${editingMaterialId}`}
+                                      type="file"
+                                      className="form-control form-control-sm mb-3"
+                                      accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png"
+                                      onChange={(event) =>
+                                        setMaterialEditForm((previous) => ({
+                                          ...previous,
+                                          file: event.target.files?.[0] || null,
+                                        }))
+                                      }
+                                    />
+
+                                    <div className="d-flex gap-2">
+                                      <button
+                                        type="button"
+                                        className="btn btn-primary btn-sm fw-semibold"
+                                        disabled={savingMaterialEdit}
+                                        onClick={() =>
+                                          saveMaterialEdit(lessonId)
+                                        }
+                                      >
+                                        {savingMaterialEdit
+                                          ? "Duke ruajtur..."
+                                          : "Ruaj"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="btn btn-outline-secondary btn-sm"
+                                        disabled={savingMaterialEdit}
+                                        onClick={() =>
+                                          setEditingMaterialId(null)
+                                        }
+                                      >
+                                        Anulo
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        </section>
       </main>
     </>
   );

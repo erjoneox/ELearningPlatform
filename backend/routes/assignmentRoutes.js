@@ -31,35 +31,35 @@ router.get(
 router.post(
   "/courses/:courseId",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   addAssignment,
 );
 
 router.patch(
   "/:assignmentId",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   editAssignment,
 );
 
 router.delete(
   "/:assignmentId",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   removeAssignment,
 );
 
 router.get(
   "/courses/:courseId/:assignmentId/submissions",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   listSubmissions,
 );
 
 router.get(
   "/:assignmentId/submissions",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   listSubmissions,
 );
 
@@ -74,14 +74,14 @@ router.post(
 router.get(
   "/submissions/:submissionId/file",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor", "Student"),
+  authorizeRoles("Instructor", "Student"),
   downloadSubmission,
 );
 
 router.patch(
   "/submissions/:submissionId/grade",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   gradeWork,
 );
 

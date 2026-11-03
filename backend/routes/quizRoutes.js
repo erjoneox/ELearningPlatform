@@ -29,7 +29,7 @@ router.get(
 router.post(
   "/courses/:courseId",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   addQuiz,
 );
 
@@ -43,28 +43,28 @@ router.get(
 router.get(
   "/:quizId",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   getQuizForInstructor,
 );
 
 router.put(
   "/:quizId",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   editQuiz,
 );
 
 router.delete(
   "/:quizId",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   removeQuiz,
 );
 
 router.get(
   "/:quizId/results",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   quizResults,
 );
 

@@ -35,7 +35,10 @@ app.use("/api/progress", progressRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/categories", categoryRoutes);
 
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use(
+  "/uploads/materials",
+  express.static(path.join(__dirname, "uploads/materials")),
+);
 
 app.get("/", (req, res) => {
   res.json({

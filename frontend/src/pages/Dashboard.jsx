@@ -46,13 +46,6 @@ const statisticDetails = {
     { key: "Instructors", label: "Instructors", icon: "I" },
     { key: "ActiveCourses", label: "Active Courses", icon: "K" },
     { key: "ActiveEnrollments", label: "Enrollments", icon: "R" },
-    { key: "TotalSubmissions", label: "Submissions", icon: "✓" },
-    {
-      key: "UngradedSubmissions",
-      label: "Ungraded",
-      icon: "!",
-      tone: "warning",
-    },
   ],
 };
 
@@ -103,7 +96,12 @@ function EmptyState({ children }) {
   return <div className="dashboard-empty">{children}</div>;
 }
 
-function CourseList({ courses, instructorView = false, emptyText }) {
+function CourseList({
+  courses,
+  instructorView = false,
+  adminView = false,
+  emptyText,
+}) {
   if (!courses?.length) return <EmptyState>{emptyText}</EmptyState>;
 
   return (
@@ -151,7 +149,12 @@ function CourseList({ courses, instructorView = false, emptyText }) {
               to={`/courses/${course.CourseID}`}
               className="dashboard-text-link"
             >
-              {instructorView ? "Manage course" : "Continue learning"} →
+              {instructorView && !adminView
+                ? "Manage course"
+                : adminView
+                  ? "View course"
+                  : "Continue learning"}{" "}
+              →
             </Link>
           </article>
         );
@@ -179,7 +182,7 @@ function SubmissionList({ items, emptyText }) {
           <div className="dashboard-list-meta">
             <span>{formatDate(submission.SubmittedAt, true)}</span>
             <Link
-              to={`/courses/${submission.CourseID}`}
+              to={`/courses/${submission.CourseID}?assignment=${submission.AssignmentID}#assignment-${submission.AssignmentID}`}
               className="dashboard-text-link"
             >
               Review
@@ -573,25 +576,40 @@ function Dashboard() {
                   title="Recent courses"
                   description="Active courses on the platform."
                   action={
-                    <Link to="/courses" className="dashboard-text-link">
-                      All courses
-                    </Link>
+                    <div className="d-flex gap-3">
+                      <Link to="/courses" className="dashboard-text-link">
+                        All courses
+                      </Link>
+                      <Link to="/admin/users" className="dashboard-text-link">
+                        Manage users
+                      </Link>
+                    </div>
                   }
                 >
                   <CourseList
                     courses={dashboard.recentCourses}
                     instructorView
+                    adminView
                     emptyText="There are no active courses."
                   />
                 </Section>
                 <Section
-                  title="Ungraded submissions"
-                  description="Submissions needing attention."
+                  title="Administration"
+                  description="Manage platform courses and user accounts."
+                  action={
+                    <Link to="/admin/users" className="dashboard-text-link">
+                      Manage users
+                    </Link>
+                  }
                 >
-                  <SubmissionList
-                    items={dashboard.ungradedSubmissions}
-                    emptyText="All submissions are graded."
-                  />
+                  <div className="d-flex flex-wrap gap-3">
+                    <Link to="/courses" className="btn btn-primary">
+                      Manage courses
+                    </Link>
+                    <Link to="/admin/users" className="btn btn-outline-primary">
+                      Manage users
+                    </Link>
+                  </div>
                 </Section>
               </div>
             )}

@@ -76,7 +76,7 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
     questions: [createQuestion()],
   });
 
-  const canManage = userRole === "Admin" || userRole === "Instructor";
+  const canManage = userRole === "Instructor";
 
   const loadQuizzes = useCallback(async () => {
     setLoading(true);

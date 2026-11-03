@@ -122,9 +122,8 @@ async function hasEnrollment(studentId, courseId) {
 
 async function canManageCourse(course, user) {
   return (
-    user.role === "Admin" ||
-    (user.role === "Instructor" &&
-      Number(course.InstructorID) === Number(user.userId))
+    user.role === "Instructor" &&
+    Number(course.InstructorID) === Number(user.userId)
   );
 }
 
@@ -185,7 +184,10 @@ async function listQuizzes(req, res) {
           message: "You must be enrolled in this course.",
         });
       }
-    } else if (!(await canManageCourse(course, req.user))) {
+    } else if (
+      req.user.role !== "Admin" &&
+      !(await canManageCourse(course, req.user))
+    ) {
       return res.status(403).json({
         message: "You cannot access these quizzes.",
       });

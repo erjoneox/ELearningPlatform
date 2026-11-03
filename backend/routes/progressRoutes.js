@@ -44,7 +44,7 @@ router.get(
 router.get(
   "/courses/:courseId/students",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Instructor"),
   getStudentsProgress,
 );
 
