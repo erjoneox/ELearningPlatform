@@ -37,30 +37,26 @@ function Navbar() {
           to={user ? "/dashboard" : "/"}
           onClick={closeMenu}
         >
-          <div
-            className="rounded-3 p-2 text-white d-flex align-items-center justify-content-center"
-            style={{
-              backgroundColor: "#5640EE",
-              width: "36px",
-              height: "36px",
-            }}
-          >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
-              <path d="M6 12v5c3 3 9 3 12 0v-5" />
-            </svg>
-          </div>
-          <span className="fs-4 fw-bold" style={{ color: "#1e1e2f" }}>
-            EduFlow
+          <span className="d-inline-flex align-items-center justify-content-center rounded-3 px-2">
+            <img
+              src="/full-logo.png"
+              alt="EduFlow"
+              style={{
+                display: "block",
+                width: "96px",
+                height: "42px",
+                filter: `
+        drop-shadow(1px 0px 0px #000000) 
+        drop-shadow(-1px 0px 0px #000000) 
+        drop-shadow(0px 1px 0px #000000) 
+        drop-shadow(0px -1px 0px #000000)
+        drop-shadow(1px 1px 0px #000000) 
+        drop-shadow(-1px -1px 0px #000000)
+        drop-shadow(1px -1px 0px #000000) 
+        drop-shadow(-1px 1px 0px #000000)
+      `,
+              }}
+            />
           </span>
         </Link>
 
