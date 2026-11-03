@@ -4,11 +4,26 @@ const { findUserByEmail, createUser } = require("../models/userModel");
 
 async function register(req, res) {
   try {
-    const { firstName, lastName, email, password } = req.body;
+    const { firstName, lastName, email, password, role } = req.body;
 
-    if (!firstName || !lastName || !email || !password) {
+    if (!firstName || !lastName || !email || !password || !role) {
       return res.status(400).json({
-        message: "All fields are required.",
+        message: "All fields, including the account role, are required.",
+      });
+    }
+
+    const requestedRole =
+      typeof role === "string" ? role.trim().toLowerCase() : "";
+    const accountRole =
+      requestedRole === "student"
+        ? "Student"
+        : ["instructor", "teacher"].includes(requestedRole)
+          ? "Instructor"
+          : null;
+
+    if (!accountRole) {
+      return res.status(400).json({
+        message: "Only Student and Instructor accounts can be created.",
       });
     }
 
@@ -35,6 +50,7 @@ async function register(req, res) {
       lastName.trim(),
       normalizedEmail,
       passwordHash,
+      accountRole,
     );
 
     return res.status(201).json({

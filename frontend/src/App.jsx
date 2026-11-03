@@ -9,6 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import Courses from "./pages/Courses";
 import CourseDetails from "./pages/CourseDetails";
 import MyCourses from "./pages/MyCourses";
+import AdminUsers from "./pages/AdminUsers";
 import Navbar from "./components/Navbar";
 
 function Home() {
@@ -30,8 +31,8 @@ function Home() {
               vetme.
             </p>
 
-            <Link to="/register" className="btn btn-primary btn-lg mt-3">
-              Fillo tani
+            <Link to="/login" className="btn btn-primary btn-lg mt-3">
+              Kyçu
             </Link>
           </div>
         </div>
@@ -47,8 +48,12 @@ function AppRoutes() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
         <Route path="/courses" element={<Courses />} />
+
+        <Route element={<ProtectedRoute allowedRoles={["Admin"]} />}>
+          <Route path="/register" element={<Register />} />
+          <Route path="/admin/users" element={<AdminUsers />} />
+        </Route>
 
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<Dashboard />} />

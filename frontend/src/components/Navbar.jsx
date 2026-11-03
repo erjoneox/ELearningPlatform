@@ -7,7 +7,6 @@ function Navbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
 
   function handleLogout() {
     logout();
@@ -128,6 +127,45 @@ function Navbar() {
               Kurset
             </NavLink>
 
+            {user?.role === "Admin" && (
+              <>
+                <NavLink
+                  to="/admin/users"
+                  onClick={closeMenu}
+                  className={({ isActive }) =>
+                    `text-decoration-none fw-semibold pb-1 position-relative ${
+                      isActive ? "text-primary" : "text-muted"
+                    }`
+                  }
+                  style={({ isActive }) => ({
+                    color: isActive ? "#5640EE !important" : "#6c757d",
+                    borderBottom: isActive
+                      ? "2px solid #5640EE"
+                      : "2px solid transparent",
+                  })}
+                >
+                  Përdoruesit
+                </NavLink>
+                <NavLink
+                  to="/register"
+                  onClick={closeMenu}
+                  className={({ isActive }) =>
+                    `text-decoration-none fw-semibold pb-1 position-relative ${
+                      isActive ? "text-primary" : "text-muted"
+                    }`
+                  }
+                  style={({ isActive }) => ({
+                    color: isActive ? "#5640EE !important" : "#6c757d",
+                    borderBottom: isActive
+                      ? "2px solid #5640EE"
+                      : "2px solid transparent",
+                  })}
+                >
+                  Krijo përdorues
+                </NavLink>
+              </>
+            )}
+
             {user?.role === "Student" && (
               <>
                 <NavLink
@@ -155,66 +193,10 @@ function Navbar() {
             <div
               className="navbar-responsive-search position-relative"
               style={{ width: "240px" }}
-            >
-              <span className="position-absolute top-50 start-0 translate-middle-y ps-3 text-muted">
-                <svg
-                  width="15"
-                  height="15"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
-              </span>
-              <input
-                type="text"
-                className="form-control form-control-sm bg-light border-0 rounded-pill ps-5 py-2 text-dark"
-                placeholder="Search courses..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{ fontSize: "0.85rem" }}
-              />
-            </div>
+            ></div>
 
             {user ? (
               <>
-                <div
-                  className="navbar-responsive-notification position-relative cursor-pointer p-2 text-muted"
-                  title="Njoftimet"
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-                    />
-                  </svg>
-                  <span
-                    className="position-absolute top-2 end-2 p-1 bg-danger border border-light rounded-circle"
-                    style={{
-                      width: "7px",
-                      height: "7px",
-                      top: "8px",
-                      right: "8px",
-                    }}
-                  />
-                </div>
-
-                <div className="navbar-responsive-divider vr h-25 text-muted opacity-25 mx-1" />
-
                 <div className="navbar-responsive-user d-flex align-items-center gap-2">
                   <div className="text-end d-none d-sm-block">
                     <span
@@ -251,11 +233,16 @@ function Navbar() {
                       initials
                     )}
                   </div>
+
+                  <div
+                    className="navbar-responsive-divider vr text-muted opacity-25"
+                    style={{ height: "38px", width: "1px" }}
+                  />
                 </div>
 
                 <button
                   type="button"
-                  className="btn btn-outline-danger btn-sm rounded-pill px-3 ms-2"
+                  className="btn btn-outline-danger btn-sm rounded-pill px-3"
                   onClick={handleLogout}
                   style={{ fontSize: "0.8rem" }}
                 >
@@ -270,13 +257,6 @@ function Navbar() {
                   style={{ borderColor: "#5640EE", color: "#5640EE" }}
                 >
                   Kyçu
-                </Link>
-                <Link
-                  to="/register"
-                  className="btn btn-primary btn-sm px-3 rounded-pill text-white"
-                  style={{ backgroundColor: "#5640EE", border: "none" }}
-                >
-                  Regjistrohu
                 </Link>
               </div>
             )}

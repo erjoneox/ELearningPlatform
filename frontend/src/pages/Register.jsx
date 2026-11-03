@@ -7,7 +7,7 @@ function Register() {
   const { register, loading } = useAuth();
   const navigate = useNavigate();
 
-  const [role, setRole] = useState("student"); // "student" ose "teacher"
+  const [role, setRole] = useState("Student");
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [formData, setFormData] = useState({
     firstName: "",
@@ -45,16 +45,16 @@ function Register() {
         lastName: formData.lastName.trim(),
         email: formData.email.trim(),
         password: formData.password,
-        role: role,
+        role,
       });
 
       await Swal.fire({
         icon: "success",
-        title: "Regjistrimi u realizua",
-        text: "Tani mund të kyçesh në llogarinë tënde.",
+        title: "Llogaria u krijua",
+        text: "Llogaria e re u krijua me sukses.",
       });
 
-      navigate("/login");
+      navigate("/dashboard");
     } catch (error) {
       Swal.fire({
         icon: "error",
@@ -83,15 +83,15 @@ function Register() {
               <div className="col-6">
                 <button
                   type="button"
-                  onClick={() => setRole("student")}
+                  onClick={() => setRole("Student")}
                   className={`btn w-100 py-2 d-flex flex-column align-items-center justify-content-center rounded-3 transition-all ${
-                    role === "student"
+                    role === "Student"
                       ? "border-primary text-primary bg-primary bg-opacity-10 fw-bold"
                       : "border text-muted bg-light"
                   }`}
                   style={{
-                    borderColor: role === "student" ? "#5640EE" : "#e0e0e0",
-                    color: role === "student" ? "#5640EE" : "inherit",
+                    borderColor: role === "Student" ? "#5640EE" : "#e0e0e0",
+                    color: role === "Student" ? "#5640EE" : "inherit",
                   }}
                 >
                   <svg
@@ -121,15 +121,15 @@ function Register() {
               <div className="col-6">
                 <button
                   type="button"
-                  onClick={() => setRole("teacher")}
+                  onClick={() => setRole("Instructor")}
                   className={`btn w-100 py-2 d-flex flex-column align-items-center justify-content-center rounded-3 transition-all ${
-                    role === "teacher"
+                    role === "Instructor"
                       ? "border-primary text-primary bg-primary bg-opacity-10 fw-bold"
                       : "border text-muted bg-light"
                   }`}
                   style={{
-                    borderColor: role === "teacher" ? "#5640EE" : "#e0e0e0",
-                    color: role === "teacher" ? "#5640EE" : "inherit",
+                    borderColor: role === "Instructor" ? "#5640EE" : "#e0e0e0",
+                    color: role === "Instructor" ? "#5640EE" : "inherit",
                   }}
                 >
                   <svg

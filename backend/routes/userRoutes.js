@@ -1,6 +1,11 @@
 const express = require("express");
 
-const { getUsers, changeUserStatus } = require("../controllers/userController");
+const {
+  getUsers,
+  changeUserStatus,
+  editUser,
+  removeUser,
+} = require("../controllers/userController");
 
 const {
   authenticateToken,
@@ -17,5 +22,9 @@ router.patch(
   authorizeRoles("Admin"),
   changeUserStatus,
 );
+
+router.put("/:id", authenticateToken, authorizeRoles("Admin"), editUser);
+
+router.delete("/:id", authenticateToken, authorizeRoles("Admin"), removeUser);
 
 module.exports = router;

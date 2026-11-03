@@ -48,9 +48,10 @@
   .navbar-responsive-search {
     flex-basis: 100%;
   }
-
-  .navbar-responsive-notification,
   .navbar-responsive-divider {
     display: none;
+  }
+  .btn-outline-danger {
+    break-inside: avoid;
   }
 }

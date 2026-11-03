@@ -312,16 +312,9 @@ function Login() {
               </div>
             </div>
 
-            {/* Register Link */}
             <p className="text-center text-muted small mt-4 mb-0">
-              Nuk ke llogari?{" "}
-              <Link
-                to="/register"
-                className="fw-semibold text-decoration-none"
-                style={{ color: "#5640EE" }}
-              >
-                Regjistrohu këtu
-              </Link>
+              Llogaritë e studentëve dhe mësimdhënësve krijohen nga
+              administratori.
             </p>
           </div>
         </div>
