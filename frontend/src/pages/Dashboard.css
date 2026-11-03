@@ -2,7 +2,11 @@
   min-height: calc(100vh - 64px);
   padding: 36px 0 64px;
   background:
-    radial-gradient(ellipse at 10% 0%, rgba(13, 110, 253, 0.08), transparent 34rem),
+    radial-gradient(
+      ellipse at 10% 0%,
+      rgba(13, 110, 253, 0.08),
+      transparent 34rem
+    ),
     #f5f7fb;
 }
 
@@ -177,11 +181,29 @@
 }
 
 .dashboard-course-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   min-width: 0;
-  padding: 19px;
   border: 1px solid #e9edf4;
   border-radius: 14px;
   background: #fbfcfe;
+}
+
+.dashboard-course-background {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.14;
+  pointer-events: none;
+}
+
+.dashboard-course-card-content {
+  position: relative;
+  padding: 19px;
 }
 
 .dashboard-course-card-top {
@@ -290,6 +312,22 @@
   box-shadow: 0 0 0 4px #fff3d4;
 }
 
+.dashboard-status-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.dashboard-status-icon.dashboard-status-today {
+  color: #0d6efd;
+  background: none;
+  box-shadow: none;
+}
+
 .dashboard-status-upcoming {
   background: #0d6efd;
   box-shadow: 0 0 0 4px #eaf2ff;
@@ -309,7 +347,8 @@
   font-size: 0.88rem;
 }
 
-.dashboard-list-item:has(.dashboard-submission-icon) .dashboard-submission-icon {
+.dashboard-list-item:has(.dashboard-submission-icon)
+  .dashboard-submission-icon {
   background: #eaf2ff;
   color: #0d6efd;
 }

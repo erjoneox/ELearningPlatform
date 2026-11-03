@@ -109,53 +109,75 @@ function CourseList({
       {courses.map((course) => {
         const progress = Number(course.progress || 0);
         const title = course.CourseTitle || course.Title || "Course";
+        const thumbnail = course.Thumbnail || course.thumbnail;
 
         return (
-          <article className="dashboard-course-card" key={course.CourseID}>
-            <div className="dashboard-course-card-top">
-              <span className="dashboard-course-mark" aria-hidden="true">
-                {title.slice(0, 1).toUpperCase()}
-              </span>
-              {instructorView ? (
-                <span className="dashboard-count-badge">
-                  {Number(course.Students || 0)} students
-                </span>
-              ) : (
-                <span className="dashboard-course-percent">{progress}%</span>
-              )}
-            </div>
-            <h3 title={title}>{title}</h3>
-            <p>
-              {instructorView
-                ? `${Number(course.Assignments || 0)} assignments · ${Number(course.UngradedSubmissions || 0)} awaiting review`
-                : `${Number(course.completedLessons || 0)} of ${Number(course.totalLessons || 0)} lessons completed`}
-            </p>
-            {!instructorView && (
-              <div
-                className="progress dashboard-progress"
-                role="progressbar"
-                aria-label={`${title} progress`}
-                aria-valuenow={progress}
-                aria-valuemin={0}
-                aria-valuemax={100}
-              >
-                <div
-                  className="progress-bar"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
+          <article
+            className="dashboard-course-card"
+            key={course.CourseID}
+            style={
+              thumbnail
+                ? { "--dashboard-course-image": `url("${thumbnail}")` }
+                : undefined
+            }
+          >
+            {thumbnail && (
+              <img
+                className="dashboard-course-background"
+                src={thumbnail}
+                alt=""
+                aria-hidden="true"
+                onError={(event) => {
+                  event.currentTarget.style.display = "none";
+                }}
+              />
             )}
-            <Link
-              to={`/courses/${course.CourseID}`}
-              className="dashboard-text-link"
-            >
-              {instructorView && !adminView
-                ? "Manage course"
-                : adminView
-                  ? "View course"
-                  : "Continue learning"}{" "}
-              →
-            </Link>
+            <div className="dashboard-course-card-content">
+              <div className="dashboard-course-card-top">
+                <span className="dashboard-course-mark" aria-hidden="true">
+                  {title.slice(0, 1).toUpperCase()}
+                </span>
+                {instructorView ? (
+                  <span className="dashboard-count-badge">
+                    {Number(course.Students || 0)} students
+                  </span>
+                ) : (
+                  <span className="dashboard-course-percent">{progress}%</span>
+                )}
+              </div>
+              <h3 title={title}>{title}</h3>
+              <p>
+                {instructorView
+                  ? `${Number(course.Assignments || 0)} assignments · ${Number(course.UngradedSubmissions || 0)} awaiting review`
+                  : `${Number(course.completedLessons || 0)} of ${Number(course.totalLessons || 0)} lessons completed`}
+              </p>
+              {!instructorView && (
+                <div
+                  className="progress dashboard-progress"
+                  role="progressbar"
+                  aria-label={`${title} progress`}
+                  aria-valuenow={progress}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  <div
+                    className="progress-bar"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+              )}
+              <Link
+                to={`/courses/${course.CourseID}`}
+                className="dashboard-text-link"
+              >
+                {instructorView && !adminView
+                  ? "Manage course"
+                  : adminView
+                    ? "View course"
+                    : "Continue learning"}{" "}
+                →
+              </Link>
+            </div>
           </article>
         );
       })}
@@ -283,7 +305,21 @@ function AssignmentList({ items, emptyText, status }) {
     <div className="dashboard-list">
       {items.map((assignment) => (
         <article className="dashboard-list-item" key={assignment.AssignmentID}>
-          <span className={`dashboard-status-dot dashboard-status-${status}`} />
+          {status === "today" ? (
+            <svg
+              className="dashboard-status-icon dashboard-status-today"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+          ) : (
+            <span
+              className={`dashboard-status-dot dashboard-status-${status}`}
+            />
+          )}
           <div className="dashboard-list-content">
             <h3>{assignment.Title}</h3>
             <p>
@@ -490,9 +526,10 @@ function Dashboard() {
     <main className="dashboard-page bg-light min-vh-100 py-4 px-3 px-md-5">
       <div className="container-fluid" style={{ maxWidth: "1200px" }}>
         <div className="mb-4">
-          <h1 className="fw-bold text-dark fs-3 mb-1">
-            {roleContent?.title || "Welcome back"}
-            {user?.firstName ? `, ${user.firstName}!` : "!"} 👋
+          <h1 className="fw-bold text-dark fs-1 mb-1">
+            {user?.firstName
+              ? `Great to see you, ${user.firstName}!`
+              : "Great to see you again!"}
           </h1>
           <p className="text-muted small">
             {roleContent?.description ||
