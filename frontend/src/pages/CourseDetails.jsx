@@ -6,6 +6,40 @@ import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import CourseQuizzes from "../components/CourseQuizzes";
 
+function getVideoPreview(url) {
+  if (!URL.canParse(url)) return null;
+
+  const parsedUrl = new URL(url);
+  const host = parsedUrl.hostname.replace(/^www\./, "");
+  let youtubeId = "";
+
+  if (host === "youtu.be") {
+    youtubeId = parsedUrl.pathname.split("/").filter(Boolean)[0] || "";
+  } else if (
+    host === "youtube.com" ||
+    host === "m.youtube.com" ||
+    host === "youtube-nocookie.com"
+  ) {
+    youtubeId =
+      parsedUrl.searchParams.get("v") ||
+      parsedUrl.pathname.match(/^\/(?:embed|shorts|live)\/([^/]+)/)?.[1] ||
+      "";
+  }
+
+  if (/^[\w-]{11}$/.test(youtubeId)) {
+    return {
+      type: "image",
+      src: `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`,
+    };
+  }
+
+  if (/\.(mp4|webm|ogg|mov|m4v)$/i.test(parsedUrl.pathname)) {
+    return { type: "video", src: url };
+  }
+
+  return null;
+}
+
 function CourseDetails() {
   const { courseId } = useParams();
   const location = useLocation();
@@ -1123,24 +1157,29 @@ function CourseDetails() {
   return (
     <>
       <main className="container py-5 d-flex flex-column">
-        <Link to="/courses" className="btn btn-link px-0 mb-3">
-          &larr; Kthehu te kurset
+        <Link
+          to="/courses"
+          className="btn text-white fw-semibold px-4 py-2 rounded-3 shadow-sm d-inline-flex align-items-center gap-2 mb-4"
+          style={{ backgroundColor: "#5640EE" }}
+        >
+          <span className="fs-6">&larr;</span>
+          <span>Kthehu te kurset</span>
         </Link>
 
         <h1 className="fw-bold">Permbajtja e kursit</h1>
 
-        <p className="text-secondary">Mesimet dhe materialet mesimore.</p>
+        <p className="text-secondary mb-0">Mesimet dhe materialet mesimore.</p>
+        <br />
 
         {canManageLessons && (
           <section
             className="mb-5 bg-white p-4 rounded-4 shadow-sm border"
             style={{ order: 1 }}
           >
-            {/* Header-i i seksionit me butonin në të djathtë */}
             <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
               <div>
                 <h2 className="fw-bold text-dark fs-5 mb-1">Course Lessons</h2>
-                <p className="text-muted small mb-0">
+                <p className="text-secondary mb-0">
                   Plan and structure your course curriculum
                 </p>
               </div>
@@ -1157,7 +1196,6 @@ function CourseDetails() {
               )}
             </div>
 
-            {/* Forma e krijimit të mësimit të ri */}
             {showLessonForm && (
               <form
                 className="card card-body shadow-sm mb-4 border-0 bg-light rounded-4 p-4"
@@ -1263,18 +1301,16 @@ function CourseDetails() {
           </section>
         )}
 
-        {/* Detyrat e kursit */}
         <section className="mt-5 mb-5" style={{ order: 3 }}>
           <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
             <div>
-              <h2 className="fw-bold text-dark fs-5 mb-1">Detyrat e kursit</h2>
-              <p className="text-muted small mb-0">
+              <h2 className="fw-bold mb-3">Detyrat e kursit</h2>
+              <p className="text-secondary mb-0">
                 Vlerësoni dhe ndiqni përparimin përmes detyrave
               </p>
             </div>
           </div>
 
-          {/* Krijimi i detyrave nga instruktori ose administratori */}
           {canManageAssignments && (
             <div className="card border-0 shadow-sm mb-4 rounded-4 p-2 bg-white">
               <div className="card-body p-4">
@@ -1855,6 +1891,10 @@ function CourseDetails() {
 
         <section className="mb-5" style={{ order: 2 }}>
           <h2 className="fw-bold mb-3">Mësimet e kursit</h2>
+          <p className="text-secondary mb-0">
+            Këtu mund të shikoni dhe shkarkoni mësimet e kursit.
+          </p>
+          <br />
           {loading && <p>Duke ngarkuar mesimet...</p>}
 
           {error && <div className="alert alert-danger">{error}</div>}
@@ -1870,6 +1910,8 @@ function CourseDetails() {
           <div className="d-flex flex-column gap-3">
             {lessons.map((lesson, index) => {
               const lessonId = lesson.LessonID ?? lesson.lessonId;
+              const videoUrl = lesson.VideoURL ?? lesson.videoURL;
+              const videoPreview = videoUrl ? getVideoPreview(videoUrl) : null;
 
               return (
                 <div
@@ -2031,18 +2073,111 @@ function CourseDetails() {
                       </form>
                     )}
 
-                    {(lesson.VideoURL || lesson.videoURL) && (
-                      <p>
-                        <a
-                          href={lesson.VideoURL ?? lesson.videoURL}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Hap videon e mesimit
-                        </a>
-                      </p>
+                    {videoUrl && (
+                      <div className="row g-3 align-items-center mt-2">
+                        <div className="col-md-5 col-lg-4">
+                          <div className="ratio ratio-16x9 position-relative overflow-hidden rounded-3 bg-dark shadow-sm">
+                            {videoPreview?.type === "image" && (
+                              <img
+                                src={videoPreview.src}
+                                alt={`Pamje paraprake: ${lesson.Title ?? lesson.title}`}
+                                className="w-100 h-100"
+                                style={{ objectFit: "cover" }}
+                                onError={(event) => {
+                                  event.currentTarget.style.display = "none";
+                                }}
+                              />
+                            )}
+                            {videoPreview?.type === "video" && (
+                              <video
+                                src={videoPreview.src}
+                                className="w-100 h-100"
+                                style={{ objectFit: "cover" }}
+                                muted
+                                playsInline
+                                preload="metadata"
+                                aria-label={`Pamje paraprake: ${lesson.Title ?? lesson.title}`}
+                                onError={(event) => {
+                                  event.currentTarget.style.display = "none";
+                                }}
+                              />
+                            )}
+                            {!videoPreview && (
+                              <div
+                                className="w-100 h-100 d-flex align-items-center justify-content-center"
+                                style={{
+                                  background:
+                                    "linear-gradient(135deg, #1e1e2f, #5640EE)",
+                                }}
+                                aria-hidden="true"
+                              >
+                                <svg
+                                  width="52"
+                                  height="52"
+                                  viewBox="0 0 52 52"
+                                  fill="none"
+                                >
+                                  <circle
+                                    cx="26"
+                                    cy="26"
+                                    r="24"
+                                    fill="rgba(255,255,255,0.2)"
+                                  />
+                                  <path
+                                    d="M22 17.5L35 26L22 34.5V17.5Z"
+                                    fill="white"
+                                  />
+                                </svg>
+                              </div>
+                            )}
+                            {videoPreview && (
+                              <span
+                                className="position-absolute top-50 start-50 translate-middle rounded-circle d-flex align-items-center justify-content-center"
+                                style={{
+                                  width: "52px",
+                                  height: "52px",
+                                  backgroundColor: "rgba(0, 0, 0, 0.58)",
+                                  pointerEvents: "none",
+                                }}
+                                aria-hidden="true"
+                              >
+                                <svg
+                                  width="24"
+                                  height="24"
+                                  viewBox="0 0 24 24"
+                                  fill="white"
+                                >
+                                  <path d="M8 5v14l11-7z" />
+                                </svg>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="col-md-7 col-lg-8">
+                          <p className="small text-muted mb-2">
+                            Videoja e këtij mësimi
+                          </p>
+                          <a
+                            href={videoUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-primary btn-lg fw-semibold d-inline-flex align-items-center gap-2 shadow-sm"
+                          >
+                            <svg
+                              width="20"
+                              height="20"
+                              viewBox="0 0 24 24"
+                              fill="currentColor"
+                              aria-hidden="true"
+                            >
+                              <path d="M8 5v14l11-7z" />
+                            </svg>
+                            Hap videon e mësimit
+                          </a>
+                        </div>
+                      </div>
                     )}
-
+                    <br />
                     <div className="d-flex flex-wrap gap-2">
                       <button
                         type="button"

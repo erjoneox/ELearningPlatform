@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Barlow&family=Electrolize&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap");
 .counter {
   font-size: 16px;
   padding: 5px 10px;
@@ -190,19 +190,14 @@ h3,
 h4,
 h5,
 h6 {
-  font-family: "Electrolize", sans-serif;
-  font-weight: 700;
+  font-family: "Bebas Neue", sans-serif;
   font-style: normal;
+  letter-spacing: 0.5px;
 }
 
-.barlow-regular {
-  font-family: "Barlow", sans-serif;
-  font-weight: 400;
-  font-style: normal;
-}
-
-.electrolize-regular {
-  font-family: "Electrolize", sans-serif;
+.montserrat-paragraph {
+  font-family: "Montserrat", sans-serif;
+  font-optical-sizing: auto;
   font-weight: 400;
   font-style: normal;
 }

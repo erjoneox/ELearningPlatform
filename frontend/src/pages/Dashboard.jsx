@@ -1,5 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import {
+  BookCheck,
+  BookOpen,
+  ClipboardCheck,
+  ClipboardList,
+  Clock,
+  Files,
+  GraduationCap,
+  Presentation,
+  UserCheck,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import "./Dashboard.css";
@@ -21,31 +34,31 @@ const roleDetails = {
 
 const statisticDetails = {
   Student: [
-    { key: "EnrolledCourses", label: "My Courses", icon: "K" },
-    { key: "PendingAssignments", label: "Pending Assignments", icon: "D" },
-    { key: "DueToday", label: "Due Today", icon: "S", tone: "warning" },
-    { key: "SubmittedAssignments", label: "Submitted", icon: "✓" },
-    { key: "CompletedLessons", label: "Completed Lessons", icon: "M" },
-    { key: "QuizAttempts", label: "Quiz Attempts", icon: "Q" },
+    { key: "EnrolledCourses", label: "My Courses", icon: BookOpen },
+    { key: "PendingAssignments", label: "Pending Assignments", icon: ClipboardList },
+    { key: "DueToday", label: "Due Today", icon: Clock, tone: "warning" },
+    { key: "SubmittedAssignments", label: "Submitted", icon: ClipboardCheck },
+    { key: "CompletedLessons", label: "Completed Lessons", icon: BookCheck },
+    { key: "QuizAttempts", label: "Quiz Attempts", icon: Files },
   ],
   Instructor: [
-    { key: "ActiveCourses", label: "Active Courses", icon: "K" },
-    { key: "Students", label: "Students", icon: "S" },
+    { key: "ActiveCourses", label: "Active Courses", icon: BookOpen },
+    { key: "Students", label: "Students", icon: Users },
     {
       key: "UngradedSubmissions",
       label: "Ungraded",
-      icon: "!",
+      icon: ClipboardList,
       tone: "warning",
     },
-    { key: "TotalAssignments", label: "Assignments", icon: "D" },
-    { key: "TotalSubmissions", label: "Submissions", icon: "✓" },
+    { key: "TotalAssignments", label: "Assignments", icon: ClipboardCheck },
+    { key: "TotalSubmissions", label: "Submissions", icon: Files },
   ],
   Admin: [
-    { key: "ActiveUsers", label: "Active Users", icon: "P" },
-    { key: "Students", label: "Students", icon: "S" },
-    { key: "Instructors", label: "Instructors", icon: "I" },
-    { key: "ActiveCourses", label: "Active Courses", icon: "K" },
-    { key: "ActiveEnrollments", label: "Enrollments", icon: "R" },
+    { key: "ActiveUsers", label: "Active Users", icon: UserCheck },
+    { key: "Students", label: "Students", icon: GraduationCap },
+    { key: "Instructors", label: "Instructors", icon: Presentation },
+    { key: "ActiveCourses", label: "Active Courses", icon: BookOpen },
+    { key: "ActiveEnrollments", label: "Enrollments", icon: UserPlus },
   ],
 };
 
@@ -61,11 +74,11 @@ function formatDate(value, includeTime = false) {
   }).format(date);
 }
 
-function StatCard({ label, value, icon, tone }) {
+function StatCard({ label, value, icon: Icon, tone }) {
   return (
     <article className={`dashboard-stat dashboard-stat-${tone || "primary"}`}>
       <span className="dashboard-stat-icon" aria-hidden="true">
-        {icon}
+        <Icon size={21} strokeWidth={1.8} />
       </span>
       <div>
         <p className="dashboard-stat-label">{label}</p>
@@ -134,11 +147,30 @@ function CourseList({
             )}
             <div className="dashboard-course-card-content">
               <div className="dashboard-course-card-top">
-                <span className="dashboard-course-mark" aria-hidden="true">
-                  {title.slice(0, 1).toUpperCase()}
-                </span>
+                {thumbnail ? (
+                  <img
+                    className="dashboard-course-thumbnail"
+                    src={thumbnail}
+                    alt={`${title} thumbnail`}
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
+                  />
+                ) : instructorView ? (
+                  <BookOpen
+                    className="dashboard-course-thumbnail-placeholder"
+                    size={24}
+                    strokeWidth={1.7}
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <span className="dashboard-course-mark" aria-hidden="true">
+                    {title.slice(0, 1).toUpperCase()}
+                  </span>
+                )}
                 {instructorView ? (
-                  <span className="dashboard-count-badge">
+                  <span className="dashboard-count-meta">
+                    <Users size={15} strokeWidth={1.8} aria-hidden="true" />
                     {Number(course.Students || 0)} students
                   </span>
                 ) : (

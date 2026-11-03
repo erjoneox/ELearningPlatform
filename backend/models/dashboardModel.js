@@ -83,6 +83,7 @@ async function getInstructorDashboard(instructorId) {
           c.CourseID,
           c.Title,
           c.Description,
+          c.Thumbnail AS Thumbnail,
           (SELECT COUNT(*)
            FROM Enrollments e
            WHERE e.CourseID = c.CourseID

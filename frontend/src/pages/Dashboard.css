@@ -89,19 +89,24 @@
 .dashboard-stat-icon,
 .dashboard-submission-icon {
   display: grid;
-  width: 42px;
-  height: 42px;
   flex: 0 0 auto;
   place-items: center;
+  color: #0d6efd;
+}
+
+.dashboard-stat-icon {
+  width: 30px;
+  height: 30px;
+}
+
+.dashboard-submission-icon {
+  width: 42px;
+  height: 42px;
   border-radius: 13px;
   background: #eaf2ff;
-  color: #0d6efd;
-  font-size: 1rem;
-  font-weight: 800;
 }
 
 .dashboard-stat-warning .dashboard-stat-icon {
-  background: #fff4d6;
   color: #a76b00;
 }
 
@@ -227,6 +232,20 @@
   font-weight: 800;
 }
 
+.dashboard-course-thumbnail {
+  display: block;
+  width: 64px;
+  height: 42px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.dashboard-course-thumbnail-placeholder {
+  flex: 0 0 auto;
+  color: #748197;
+}
+
 .dashboard-course-mark-small {
   width: 36px;
   height: 36px;
@@ -267,13 +286,13 @@
   background: linear-gradient(90deg, #0d6efd, #58a1ff);
 }
 
-.dashboard-count-badge {
-  padding: 5px 8px;
-  border-radius: 99px;
-  background: #fff4d6;
-  color: #926000;
+.dashboard-count-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #0d6efd;
   font-size: 0.72rem;
-  font-weight: 750;
+  font-weight: 600;
 }
 
 .dashboard-list {
@@ -329,7 +348,6 @@
 }
 
 .dashboard-status-upcoming {
-  background: #0d6efd;
   box-shadow: 0 0 0 4px #eaf2ff;
 }
 
