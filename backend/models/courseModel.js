@@ -1,4 +1,5 @@
 const { connectDB } = require("../config/db");
+const sql = require("mssql");
 
 async function getAllCourses() {
   const pool = await connectDB();
@@ -82,18 +83,20 @@ async function updateCourse(courseId, data) {
 
   const result = await pool
     .request()
-    .input("courseId", require("mssql").Int, courseId)
-    .input("categoryId", require("mssql").Int, data.categoryId)
-    .input("title", require("mssql").NVarChar(200), data.title)
+    .input("courseId", sql.Int, courseId)
+    .input("instructorId", sql.Int, data.instructorId)
+    .input("categoryId", sql.Int, data.categoryId)
+    .input("title", sql.NVarChar(200), data.title)
     .input(
       "description",
-      require("mssql").NVarChar(require("mssql").MAX),
+      sql.NVarChar(sql.MAX),
       data.description || null,
     )
-    .input("thumbnail", require("mssql").NVarChar(500), data.thumbnail || null)
+    .input("thumbnail", sql.NVarChar(500), data.thumbnail || null)
     .query(`
             UPDATE Courses
-            SET CategoryID = @categoryId,
+            SET InstructorID = @instructorId,
+                CategoryID = @categoryId,
                 Title = @title,
                 Description = @description,
                 Thumbnail = @thumbnail
@@ -111,9 +114,90 @@ async function updateCourse(courseId, data) {
   return result.recordset[0] || null;
 }
 
+async function deleteCourse(courseId) {
+  const pool = await connectDB();
+  const transaction = new sql.Transaction(pool);
+
+  await transaction.begin();
+
+  try {
+    const submissionFiles = await new sql.Request(transaction)
+      .input("courseId", sql.Int, courseId).query(`
+        DELETE submission
+        OUTPUT DELETED.FileURL
+        FROM Submissions AS submission
+        INNER JOIN Assignments AS assignment
+          ON assignment.AssignmentID = submission.AssignmentID
+        WHERE assignment.CourseID = @courseId
+      `);
+
+    await new sql.Request(transaction).input("courseId", sql.Int, courseId)
+      .query(`
+        DELETE FROM Assignments
+        WHERE CourseID = @courseId;
+
+        DELETE attempt
+        FROM QuizAttempts AS attempt
+        INNER JOIN Quizzes AS quiz ON quiz.QuizID = attempt.QuizID
+        WHERE quiz.CourseID = @courseId;
+
+        DELETE optionRow
+        FROM QuestionOptions AS optionRow
+        INNER JOIN Questions AS question
+          ON question.QuestionID = optionRow.QuestionID
+        INNER JOIN Quizzes AS quiz ON quiz.QuizID = question.QuizID
+        WHERE quiz.CourseID = @courseId;
+
+        DELETE question
+        FROM Questions AS question
+        INNER JOIN Quizzes AS quiz ON quiz.QuizID = question.QuizID
+        WHERE quiz.CourseID = @courseId;
+
+        DELETE FROM Quizzes WHERE CourseID = @courseId;
+        DELETE FROM Progress WHERE CourseID = @courseId;
+
+        IF OBJECT_ID(N'dbo.CourseNotifications', N'U') IS NOT NULL
+          EXEC sys.sp_executesql
+            N'DELETE FROM dbo.CourseNotifications WHERE CourseID = @courseId',
+            N'@courseId INT',
+            @courseId = @courseId;
+      `);
+
+    const materialFiles = await new sql.Request(transaction)
+      .input("courseId", sql.Int, courseId).query(`
+        DELETE material
+        OUTPUT DELETED.FileURL
+        FROM Materials AS material
+        INNER JOIN Lessons AS lesson ON lesson.LessonID = material.LessonID
+        WHERE lesson.CourseID = @courseId
+      `);
+
+    await new sql.Request(transaction).input("courseId", sql.Int, courseId)
+      .query(`
+        DELETE FROM Lessons WHERE CourseID = @courseId;
+        DELETE FROM Enrollments WHERE CourseID = @courseId;
+        DELETE FROM Courses WHERE CourseID = @courseId;
+      `);
+
+    await transaction.commit();
+
+    return {
+      submissionFiles: submissionFiles.recordset.map((row) => row.FileURL),
+      materialFiles: materialFiles.recordset.map((row) => row.FileURL),
+    };
+  } catch (error) {
+    if (transaction._aborted !== true) {
+      await transaction.rollback();
+    }
+
+    throw error;
+  }
+}
+
 module.exports = {
   getAllCourses,
   createCourse,
   getCourseById,
   updateCourse,
+  deleteCourse,
 };

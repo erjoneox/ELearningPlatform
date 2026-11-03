@@ -4,6 +4,7 @@ const {
   listCourses,
   addCourse,
   editCourse,
+  removeCourse,
 } = require("../controllers/courseController");
 
 const {
@@ -18,15 +19,17 @@ router.get("/", listCourses);
 router.post(
   "/",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Admin"),
   addCourse,
 );
 
 router.put(
   "/:id",
   authenticateToken,
-  authorizeRoles("Admin", "Instructor"),
+  authorizeRoles("Admin"),
   editCourse,
 );
+
+router.delete("/:id", authenticateToken, authorizeRoles("Admin"), removeCourse);
 
 module.exports = router;
