@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Electrolize&family=Poppins&display=swap");
 .counter {
   font-size: 16px;
   padding: 5px 10px;
@@ -167,7 +168,7 @@
 
   &::before,
   &::after {
-    content: '';
+    content: "";
     position: absolute;
     top: -4.5px;
     border: 5px solid transparent;
@@ -181,4 +182,27 @@
     right: 0;
     border-right-color: var(--border);
   }
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: "Electrolize", sans-serif;
+  font-weight: 700;
+  font-style: normal;
+}
+
+.poppins-regular {
+  font-family: "Poppins", sans-serif;
+  font-weight: 400;
+  font-style: normal;
+}
+
+.electrolize-regular {
+  font-family: "Electrolize", sans-serif;
+  font-weight: 400;
+  font-style: normal;
 }
