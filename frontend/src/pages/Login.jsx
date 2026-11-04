@@ -55,22 +55,37 @@ function Login() {
           >
             <div>
               {/* Brand Header */}
-              <div className="d-flex align-items-center gap-2 mb-4">
-                <svg
-                  width="28"
-                  height="28"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
-                  <path d="M6 12v5c3 3 9 3 12 0v-5" />
-                </svg>
-                <span className="fs-4 fw-bold">EduFlow</span>
-              </div>
+              <Link
+                to="/"
+                aria-label="EduFlow - Faqja kryesore"
+                className="d-inline-flex align-items-center rounded-3 px-2 mb-4"
+                style={{
+                  display: "block",
+                  width: "96px",
+                  height: "42px",
+                  filter: `
+        drop-shadow(1px 0px 0px #000000) 
+        drop-shadow(-1px 0px 0px #000000) 
+        drop-shadow(0px 1px 0px #000000) 
+        drop-shadow(0px -1px 0px #000000)
+        drop-shadow(1px 1px 0px #000000) 
+        drop-shadow(-1px -1px 0px #000000)
+        drop-shadow(1px -1px 0px #000000) 
+        drop-shadow(-1px 1px 0px #000000)
+      `,
+                }}
+              >
+                <img
+                  src="/full-logo.png"
+                  alt="EduFlow"
+                  style={{
+                    display: "block",
+                    width: "132px",
+                    height: "57px",
+                    objectFit: "contain",
+                  }}
+                />
+              </Link>
 
               {/* Main Headline */}
               <h2

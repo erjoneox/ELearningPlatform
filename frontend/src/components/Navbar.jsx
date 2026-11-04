@@ -11,7 +11,7 @@ function Navbar() {
   function handleLogout() {
     logout();
     setMenuOpen(false);
-    navigate("/login", { replace: true });
+    navigate("/", { replace: true });
   }
 
   function closeMenu() {
@@ -34,8 +34,9 @@ function Navbar() {
       <div className="container-fluid d-flex align-items-center justify-content-between">
         <Link
           className="d-flex align-items-center gap-2 text-decoration-none me-4"
-          to={user ? "/dashboard" : "/"}
+          to="/"
           onClick={closeMenu}
+          aria-label="EduFlow - Faqja kryesore"
         >
           <span className="d-inline-flex align-items-center justify-content-center rounded-3 px-2">
             <img
