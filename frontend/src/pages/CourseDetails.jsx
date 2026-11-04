@@ -5,6 +5,7 @@ import Swal from "sweetalert2";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import CourseQuizzes from "../components/CourseQuizzes";
+import ManagementFormPanel from "../components/ManagementFormPanel";
 
 function getVideoPreview(url) {
   if (!URL.canParse(url)) return null;
@@ -1197,12 +1198,14 @@ function CourseDetails() {
             </div>
 
             {showLessonForm && (
-              <form
-                className="card card-body shadow-sm mb-4 border-0 bg-light rounded-4 p-4"
+              <ManagementFormPanel
+                as="form"
+                eyebrow="INSTRUCTOR"
+                title="Krijo mësim të ri"
+                description="Shto titull, përshkrim, video dhe renditje për mësimin."
                 onSubmit={createLesson}
+                className="mb-4"
               >
-                <h5 className="fw-bold mb-3 fs-6">Krijo mesim te ri</h5>
-
                 <div className="mb-3">
                   <label className="form-label small fw-semibold text-secondary">
                     Titulli i mesimit *
@@ -1296,7 +1299,7 @@ function CourseDetails() {
                     Anulo
                   </button>
                 </div>
-              </form>
+              </ManagementFormPanel>
             )}
           </section>
         )}
@@ -1312,13 +1315,14 @@ function CourseDetails() {
           </div>
 
           {canManageAssignments && (
-            <div className="card border-0 shadow-sm mb-4 rounded-4 p-2 bg-white">
-              <div className="card-body p-4">
-                <h5 className="fw-bold text-dark fs-6 mb-3">
-                  Krijo detyrë të re
-                </h5>
-
-                <form onSubmit={createAssignment}>
+            <ManagementFormPanel
+              as="form"
+              eyebrow="INSTRUCTOR"
+              title="Krijo detyrë të re"
+              description="Përcakto kërkesat, afatin dhe pikët maksimale për detyrën."
+              onSubmit={createAssignment}
+              className="mb-4"
+            >
                   <div className="mb-3">
                     <label className="form-label small fw-semibold text-secondary">
                       Titulli *
@@ -1405,9 +1409,7 @@ function CourseDetails() {
                   >
                     {savingAssignment ? "Duke ruajtur..." : "+ Krijo detyrën"}
                   </button>
-                </form>
-              </div>
-            </div>
+            </ManagementFormPanel>
           )}
 
           {/* Lista e detyrave */}
@@ -1480,9 +1482,13 @@ function CourseDetails() {
                       </div>
 
                       {editingAssignmentId === assignmentId && (
-                        <form
-                          className="border rounded-4 p-3 mb-3 bg-light"
+                        <ManagementFormPanel
+                          as="form"
+                          eyebrow="EDIT"
+                          title="Përditëso detyrën"
+                          description="Ndrysho të dhënat e detyrës dhe ruaj përditësimet."
                           onSubmit={saveAssignmentEdit}
+                          className="mb-3"
                         >
                           <label
                             className="form-label small fw-semibold text-secondary"
@@ -1610,7 +1616,7 @@ function CourseDetails() {
                               Anulo
                             </button>
                           </div>
-                        </form>
+                        </ManagementFormPanel>
                       )}
 
                       {assignment.Description && (
@@ -1975,9 +1981,13 @@ function CourseDetails() {
                     )}
 
                     {editingLessonId === lessonId && (
-                      <form
-                        className="border rounded p-3 mt-3 bg-light"
+                      <ManagementFormPanel
+                        as="form"
+                        eyebrow="EDIT"
+                        title="Përditëso mësimin"
+                        description="Përditëso titullin, përshkrimin, videon ose renditjen."
                         onSubmit={saveLessonEdit}
+                        className="mt-3"
                       >
                         <label
                           className="form-label small fw-semibold text-secondary"
@@ -2070,7 +2080,7 @@ function CourseDetails() {
                             Anulo
                           </button>
                         </div>
-                      </form>
+                      </ManagementFormPanel>
                     )}
 
                     {videoUrl && (
@@ -2206,11 +2216,12 @@ function CourseDetails() {
 
                     {/* Shtimi i materialeve */}
                     {canManageMaterials && (
-                      <div className="card border shadow-sm rounded-4 p-4 bg-light mt-4">
-                        <h6 className="fw-bold mb-3 text-dark fs-6">
-                          Shto material mësimor
-                        </h6>
-
+                      <ManagementFormPanel
+                        eyebrow="INSTRUCTOR"
+                        title="Shto material mësimor"
+                        description="Ngarko një skedar dhe cakto titullin e llojin e tij."
+                        className="mt-4"
+                      >
                         <div className="mb-3">
                           <label className="form-label small fw-semibold text-secondary">
                             Titulli i materialit *
@@ -2284,7 +2295,7 @@ function CourseDetails() {
                             ? "Duke ruajtur..."
                             : "Shto materialin"}
                         </button>
-                      </div>
+                      </ManagementFormPanel>
                     )}
 
                     {/* Lista e materialeve */}
@@ -2362,7 +2373,12 @@ function CourseDetails() {
                                 {editingMaterialId ===
                                   (material.MaterialID ??
                                     material.materialId) && (
-                                  <div className="border rounded p-3 mt-2 bg-light">
+                                  <ManagementFormPanel
+                                    eyebrow="EDIT"
+                                    title="Përditëso materialin"
+                                    description="Ndrysho titullin, llojin ose skedarin."
+                                    className="mt-2 mb-0"
+                                  >
                                     <label
                                       className="form-label small fw-semibold text-secondary"
                                       htmlFor={`material-title-${editingMaterialId}`}
@@ -2447,7 +2463,7 @@ function CourseDetails() {
                                         Anulo
                                       </button>
                                     </div>
-                                  </div>
+                                  </ManagementFormPanel>
                                 )}
                               </li>
                             ))}

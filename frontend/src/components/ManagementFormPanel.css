@@ -1,0 +1,55 @@
+.management-form-panel {
+  margin-bottom: 1.5rem;
+  background-color: #fff;
+}
+
+.management-form-panel-aside {
+  background-color: #5640ee;
+}
+
+.management-form-panel .form-label {
+  color: #536176;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.management-form-panel .form-control,
+.management-form-panel .form-select {
+  border-color: #e3e8f0;
+  border-radius: 0.65rem;
+}
+
+.management-form-panel .form-control:focus,
+.management-form-panel .form-select:focus {
+  border-color: #8e80f5;
+  box-shadow: 0 0 0 0.2rem rgba(86, 64, 238, 0.14);
+}
+
+.management-form-inline {
+  position: relative;
+  padding: 0.65rem;
+  border-left: 3px solid #5640ee;
+  border-radius: 0.5rem;
+  background-color: #f7f6ff;
+}
+
+.management-form-inline::before {
+  align-self: stretch;
+  margin-bottom: 0.25rem;
+  color: #5640ee;
+  content: "Përditëso llogarinë";
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-align: left;
+}
+
+.management-form-inline .form-control {
+  border-color: #e3e8f0;
+  border-radius: 0.5rem;
+}
+
+@media (max-width: 991.98px) {
+  .management-form-panel-aside {
+    min-height: 0;
+  }
+}

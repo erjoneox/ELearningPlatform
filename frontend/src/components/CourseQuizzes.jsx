@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import Swal from "sweetalert2";
 import api from "../api/axios";
+import ManagementFormPanel from "./ManagementFormPanel";
 
 const createQuestion = () => ({
   questionText: "",
@@ -537,7 +538,14 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
       )}
 
       {canManage && showCreateForm && (
-        <form className="card card-body shadow-sm mb-4" onSubmit={createQuiz}>
+        <ManagementFormPanel
+          as="form"
+          eyebrow="INSTRUCTOR"
+          title={editingQuizId ? "Modifiko kuizin" : "Krijo kuiz të ri"}
+          description="Plotëso detajet dhe pyetjet për kuizin e kursit."
+          onSubmit={createQuiz}
+          className="mb-4"
+        >
           <div className="d-flex justify-content-between align-items-center gap-3 mb-3">
             <h3 className="h5 fw-bold mb-0">
               {editingQuizId ? "Modifiko kuizin" : "Krijo kuiz të ri"}
@@ -770,7 +778,7 @@ function CourseQuizzes({ courseId, lessons, userRole }) {
               Anulo
             </button>
           </div>
-        </form>
+        </ManagementFormPanel>
       )}
 
       {activeQuiz ? (

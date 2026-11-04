@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import Swal from "sweetalert2";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
+import ManagementFormPanel from "../components/ManagementFormPanel";
 
 function Courses() {
   const { user } = useAuth();
@@ -447,223 +448,249 @@ function Courses() {
         </div>
 
         {canCreateCourses && (
-          <section className="card border-0 shadow-sm mb-4 rounded-4">
-            <div className="card-body p-4">
-              <h2 className="fw-bold fs-5 mb-3 text-dark">
-                Menaxho kategoritë
-              </h2>
-              <form
-                className="row g-3 align-items-end"
-                onSubmit={handleCreateCategory}
+          <div className="card border-0 shadow-sm rounded-4 overflow-hidden mb-5 bg-white">
+            <div className="row g-0">
+              {/* Paneli anësor me ngjyrë / visual accent */}
+              <div
+                className="col-lg-3 p-4 text-white d-flex flex-column justify-content-between"
+                style={{ backgroundColor: "#5640EE" }}
               >
-                <div className="col-md-4">
-                  <label
-                    className="form-label small fw-semibold text-secondary"
-                    htmlFor="new-category-name"
-                  >
-                    Emri i kategorisë
-                  </label>
-                  <input
-                    id="new-category-name"
-                    className="form-control"
-                    maxLength={100}
-                    required
-                    value={newCategory.name}
-                    onChange={(event) =>
-                      setNewCategory((current) => ({
-                        ...current,
-                        name: event.target.value,
-                      }))
-                    }
-                    placeholder="p.sh. Programim"
-                  />
+                <div>
+                  <span className="badge bg-white bg-opacity-20 text-black rounded-pill px-3 py-2 mb-3">
+                    Admin / Instruktori
+                  </span>
+                  <h3 className="fw-bold fs-4 mb-2">Krijo kurs të ri</h3>
+                  <p className="text-white-50 small mb-0">
+                    Plotësoni të dhënat e kursit për ta bërë atë publik për të
+                    gjithë studentët.
+                  </p>
                 </div>
-                <div className="col-md-6">
-                  <label
-                    className="form-label small fw-semibold text-secondary"
-                    htmlFor="new-category-description"
-                  >
-                    Përshkrimi (opsional)
-                  </label>
-                  <input
-                    id="new-category-description"
-                    className="form-control"
-                    value={newCategory.description}
-                    onChange={(event) =>
-                      setNewCategory((current) => ({
-                        ...current,
-                        description: event.target.value,
-                      }))
-                    }
-                    placeholder="Përshkrim i shkurtër i kategorisë"
-                  />
+                <div className="d-none d-lg-block">
+                  <small className="text-white-50 fs-7">
+                    * Sigurohuni që kategoria dhe mësimdhënësi janë caktuar
+                    saktë.
+                  </small>
                 </div>
-                <div className="col-md-2 d-grid">
-                  <button
-                    className="btn text-white fw-semibold"
-                    style={{ backgroundColor: "#5640EE" }}
-                    disabled={creatingCategory}
-                  >
-                    {creatingCategory ? "Duke ruajtur..." : "Shto kategori"}
-                  </button>
-                </div>
-              </form>
+              </div>
+
+              {/* Fusha e Formës */}
+              <div className="col-lg-9 p-4 p-md-5">
+                <form onSubmit={handleCreateCourse}>
+                  <div className="row g-3">
+                    {/* Titulli */}
+                    <div className="col-md-8">
+                      <label className="form-label fs-7 fw-bold text-uppercase text-secondary">
+                        Titulli i kursit
+                      </label>
+                      <input
+                        className="form-control bg-light border-0 py-2.5 rounded-3"
+                        name="title"
+                        value={form.title}
+                        onChange={handleChange}
+                        maxLength={200}
+                        required
+                        placeholder="p.sh. Advanced UI/UX Design"
+                      />
+                    </div>
+
+                    {/* Kategoria */}
+                    <div className="col-md-4">
+                      <label className="form-label fs-7 fw-bold text-uppercase text-secondary">
+                        Kategoria
+                      </label>
+                      <select
+                        className="form-select bg-light border-0 py-2.5 rounded-3"
+                        name="categoryId"
+                        value={form.categoryId}
+                        onChange={handleChange}
+                        required
+                      >
+                        <option value="">Zgjedh...</option>
+                        {categories.map((category) => (
+                          <option
+                            key={category.CategoryID ?? category.categoryId}
+                            value={category.CategoryID ?? category.categoryId}
+                          >
+                            {category.Name ?? category.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Mësimdhënësi */}
+                    <div className="col-md-6">
+                      <label
+                        className="form-label fs-7 fw-bold text-uppercase text-secondary"
+                        htmlFor="course-instructor"
+                      >
+                        Mësimdhënësi përgjegjës
+                      </label>
+                      <select
+                        id="course-instructor"
+                        className="form-select bg-light border-0 py-2.5 rounded-3"
+                        name="instructorId"
+                        value={form.instructorId}
+                        onChange={handleChange}
+                        required
+                        disabled={
+                          loadingInstructors || activeInstructors.length === 0
+                        }
+                      >
+                        <option value="">Zgjedh mësimdhënësin...</option>
+                        {activeInstructors.map((instructor) => (
+                          <option
+                            key={instructor.UserID}
+                            value={instructor.UserID}
+                          >
+                            {instructor.FirstName} {instructor.LastName}
+                          </option>
+                        ))}
+                      </select>
+                      {loadingInstructors && (
+                        <small className="text-secondary d-block mt-1">
+                          Duke ngarkuar mësimdhënësit...
+                        </small>
+                      )}
+                      {instructorError && (
+                        <div className="text-danger small mt-1" role="alert">
+                          {instructorError}
+                        </div>
+                      )}
+                      {!loadingInstructors &&
+                        !instructorError &&
+                        activeInstructors.length === 0 && (
+                          <div className="text-secondary small mt-1">
+                            Nuk ka mësimdhënës aktivë.{" "}
+                            <Link
+                              to="/register"
+                              className="text-primary fw-semibold"
+                            >
+                              Krijo një llogari mësimdhënësi.
+                            </Link>
+                          </div>
+                        )}
+                    </div>
+
+                    {/* URL e Imazhit */}
+                    <div className="col-md-6">
+                      <label
+                        className="form-label fs-7 fw-bold text-uppercase text-secondary"
+                        htmlFor="course-thumbnail-create"
+                      >
+                        URL e imazhit (Opsionale)
+                      </label>
+                      <input
+                        id="course-thumbnail-create"
+                        className="form-control bg-light border-0 py-2.5 rounded-3"
+                        type="url"
+                        name="thumbnail"
+                        value={form.thumbnail}
+                        onChange={handleChange}
+                        placeholder="https://images.unsplash.com/..."
+                      />
+                    </div>
+
+                    {/* Përshkrimi */}
+                    <div className="col-12">
+                      <label className="form-label fs-7 fw-bold text-uppercase text-secondary">
+                        Përshkrimi i kursit
+                      </label>
+                      <textarea
+                        className="form-control bg-light border-0 py-2 rounded-3"
+                        name="description"
+                        value={form.description}
+                        onChange={handleChange}
+                        rows="3"
+                        placeholder="Shkruaj një përmbledhje të shkurtër se çfarë do të mësohet..."
+                      />
+                    </div>
+                  </div>
+
+                  {/* Veprimi / Butoni */}
+                  <div className="d-flex justify-content-end align-items-center gap-3 mt-4 pt-3 border-top">
+                    <button
+                      type="submit"
+                      className="btn text-white fw-semibold px-4 py-2.5 rounded-3 shadow-sm"
+                      style={{ backgroundColor: "#5640EE" }}
+                      disabled={
+                        creating ||
+                        categories.length === 0 ||
+                        loadingInstructors ||
+                        activeInstructors.length === 0
+                      }
+                    >
+                      {creating ? "Duke krijuar..." : "Publiko Kursin"}
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
-          </section>
+          </div>
         )}
 
         {canCreateCourses && (
-          <div className="card border-0 shadow-sm mb-5 rounded-4 p-2">
-            <div className="card-body p-4">
-              <h4 className="fw-bold fs-5 mb-3 text-dark">Krijo kurs të ri</h4>
-
-              <form onSubmit={handleCreateCourse}>
-                <div className="mb-3">
-                  <label className="form-label small fw-semibold text-secondary">
-                    Titulli i kursit
-                  </label>
-                  <input
-                    className="form-control"
-                    name="title"
-                    value={form.title}
-                    onChange={handleChange}
-                    maxLength={200}
-                    required
-                    placeholder="p.sh. Advanced UI/UX Design"
-                  />
-                </div>
-
-                <div className="mb-3">
-                  <label className="form-label small fw-semibold text-secondary">
-                    Përshkrimi
-                  </label>
-                  <textarea
-                    className="form-control"
-                    name="description"
-                    value={form.description}
-                    onChange={handleChange}
-                    rows="3"
-                    placeholder="Përshkruaj përmbajtjen e kursit..."
-                  />
-                </div>
-
-                <div className="mb-3">
-                  <label
-                    className="form-label small fw-semibold text-secondary"
-                    htmlFor="course-thumbnail-create"
-                  >
-                    URL-ja e imazhit (opsionale)
-                  </label>
-                  <input
-                    id="course-thumbnail-create"
-                    className="form-control"
-                    type="url"
-                    name="thumbnail"
-                    value={form.thumbnail}
-                    onChange={handleChange}
-                    placeholder="https://example.com/course-image.jpg"
-                  />
-                </div>
-
-                <div className="row g-3 mb-3">
-                  <div className="col-md-6">
-                    <label className="form-label small fw-semibold text-secondary">
-                      Kategoria
-                    </label>
-                    <select
-                      className="form-select"
-                      name="categoryId"
-                      value={form.categoryId}
-                      onChange={handleChange}
-                      required
-                    >
-                      <option value="">Zgjedh kategorinë</option>
-                      {categories.map((category) => (
-                        <option
-                          key={category.CategoryID ?? category.categoryId}
-                          value={category.CategoryID ?? category.categoryId}
-                        >
-                          {category.Name ?? category.name}
-                        </option>
-                      ))}
-                    </select>
-                    {categories.length === 0 && (
-                      <small className="text-secondary d-block mt-1">
-                        Nuk u gjetën kategori. Kontrollo endpoint-in e
-                        kategorive.
-                      </small>
-                    )}
-                  </div>
-
-                  <div className="col-md-6">
-                    <label
-                      className="form-label small fw-semibold text-secondary"
-                      htmlFor="course-instructor"
-                    >
-                      Mësimdhënësi përgjegjës
-                    </label>
-                    <select
-                      id="course-instructor"
-                      className="form-select"
-                      name="instructorId"
-                      value={form.instructorId}
-                      onChange={handleChange}
-                      required
-                      disabled={
-                        loadingInstructors || activeInstructors.length === 0
-                      }
-                    >
-                      <option value="">Zgjedh mësimdhënësin</option>
-                      {activeInstructors.map((instructor) => (
-                        <option
-                          key={instructor.UserID}
-                          value={instructor.UserID}
-                        >
-                          {instructor.FirstName} {instructor.LastName}
-                        </option>
-                      ))}
-                    </select>
-                    {loadingInstructors && (
-                      <small className="text-secondary d-block mt-1">
-                        Duke ngarkuar mësimdhënësit...
-                      </small>
-                    )}
-                    {instructorError && (
-                      <div className="text-danger small mt-1" role="alert">
-                        {instructorError}
-                      </div>
-                    )}
-                    {!loadingInstructors &&
-                      !instructorError &&
-                      activeInstructors.length === 0 && (
-                        <div className="text-secondary small mt-1">
-                          Nuk ka mësimdhënës aktivë.{" "}
-                          <Link
-                            to="/register"
-                            className="text-primary fw-semibold"
-                          >
-                            Krijo një llogari mësimdhënësi.
-                          </Link>
-                        </div>
-                      )}
-                  </div>
-                </div>
-
-                <button
-                  className="btn text-white fw-semibold px-4 py-2 rounded-3 shadow-sm"
-                  style={{ backgroundColor: "#5640EE" }}
-                  disabled={
-                    creating ||
-                    categories.length === 0 ||
-                    loadingInstructors ||
-                    activeInstructors.length === 0
-                  }
-                >
-                  {creating ? "Duke krijo..." : "+ Krijo kursin"}
-                </button>
-              </form>
+          <ManagementFormPanel
+            as="form"
+            eyebrow="ADMIN"
+            title="Krijo kategori të re"
+            description="Organizo kurset duke i grupuar në kategori."
+            onSubmit={handleCreateCategory}
+            className="mb-5"
+          >
+            <div className="mb-3">
+              <label
+                className="form-label small fw-semibold text-secondary"
+                htmlFor="category-name-create"
+              >
+                Emri i kategorisë
+              </label>
+              <input
+                id="category-name-create"
+                className="form-control"
+                maxLength={100}
+                required
+                value={newCategory.name}
+                onChange={(event) =>
+                  setNewCategory((previous) => ({
+                    ...previous,
+                    name: event.target.value,
+                  }))
+                }
+                placeholder="p.sh. Dizajn grafik"
+              />
             </div>
-          </div>
+
+            <div className="mb-3">
+              <label
+                className="form-label small fw-semibold text-secondary"
+                htmlFor="category-description-create"
+              >
+                Përshkrimi (opsional)
+              </label>
+              <textarea
+                id="category-description-create"
+                className="form-control"
+                rows={3}
+                value={newCategory.description}
+                onChange={(event) =>
+                  setNewCategory((previous) => ({
+                    ...previous,
+                    description: event.target.value,
+                  }))
+                }
+                placeholder="Përshkruaj shkurtimisht këtë kategori..."
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="btn text-white fw-semibold px-4 py-2 rounded-3 shadow-sm"
+              style={{ backgroundColor: "#5640EE" }}
+              disabled={creatingCategory}
+            >
+              {creatingCategory ? "Duke krijuar..." : "Krijo kategorinë"}
+            </button>
+          </ManagementFormPanel>
         )}
 
         {loading && <p className="text-muted">Duke ngarkuar kurset...</p>}
@@ -687,7 +714,7 @@ function Courses() {
                 id="course-categories-heading"
                 className="fw-bold fs-4 text-dark mb-1"
               >
-                Zgjidh një kategori
+                Zgjedh një kategori
               </h2>
               <p className="text-muted small mb-0">
                 Hap kategorinë për të kërkuar kurse dhe për t'u regjistruar.
@@ -846,12 +873,14 @@ function Courses() {
                     </div>
 
                     {editingCourseId === courseId && (
-                      <form
-                        className="card-footer bg-light p-4 border-top rounded-bottom-4"
-                        style={{ position: "relative" }}
+                      <ManagementFormPanel
+                        as="form"
+                        eyebrow="EDIT"
+                        title="Përditëso kursin"
+                        description="Ndrysho të dhënat dhe ruaj përditësimet e kursit."
                         onSubmit={saveCourseEdit}
+                        className="rounded-0 rounded-bottom-4"
                       >
-                        <h6 className="fw-bold mb-3 fs-6">Përditëso kursin</h6>
                         <label
                           className="form-label small fw-semibold text-secondary"
                           htmlFor={`course-title-${courseId}`}
@@ -974,6 +1003,7 @@ function Courses() {
 
                         <div className="d-flex gap-2">
                           <button
+                            type="submit"
                             className="btn btn-primary btn-sm fw-semibold"
                             disabled={savingCourseUpdate}
                           >
@@ -988,7 +1018,7 @@ function Courses() {
                             Anulo
                           </button>
                         </div>
-                      </form>
+                      </ManagementFormPanel>
                     )}
                   </div>
                 </div>
