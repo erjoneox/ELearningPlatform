@@ -6,29 +6,36 @@ const {
   deleteCourse,
 } = require("../models/courseModel");
 const { getUserById } = require("../models/userModel");
-const fs = require("fs/promises");
 const path = require("path");
+const {
+  removeStoredUploadFile,
+  resolveStoredUploadPath,
+} = require("../utils/storedUploadPath");
+
+function canManageCourse(course, user) {
+  return (
+    user?.role === "Admin" ||
+    (user?.role === "Instructor" &&
+      Number(course?.InstructorID) === Number(user.userId))
+  );
+}
 
 async function removeStoredFiles(fileURLs, uploadDirectory) {
   let failures = 0;
   const resolvedDirectory = path.resolve(uploadDirectory);
 
   for (const fileURL of fileURLs.filter(Boolean)) {
-    const filePath = path.resolve(resolvedDirectory, path.basename(fileURL));
+    const filePath = resolveStoredUploadPath(fileURL, resolvedDirectory);
 
-    if (!filePath.startsWith(resolvedDirectory + path.sep)) {
+    if (!filePath) {
       console.error("Refusing to remove a file outside its upload directory.");
       failures += 1;
       continue;
     }
 
-    try {
-      await fs.unlink(filePath);
-    } catch (error) {
-      if (error.code !== "ENOENT") {
-        console.error("Failed to remove course file:", error.message);
-        failures += 1;
-      }
+    if (!(await removeStoredUploadFile(fileURL, resolvedDirectory))) {
+      console.error("Failed to remove course file.");
+      failures += 1;
     }
   }
 
@@ -49,21 +56,21 @@ async function listCourses(req, res) {
 
 async function addCourse(req, res) {
   try {
-    const {
-      categoryId,
-      title,
-      description,
-      thumbnail,
-      instructorId,
-    } = req.body;
+    const { categoryId, title, description, thumbnail } = req.body;
+    const instructorId =
+      req.user.role === "Admin" ? Number(req.body.instructorId) : req.user.userId;
 
     if (
       !Number.isInteger(categoryId) ||
       categoryId <= 0 ||
-      !Number.isInteger(instructorId) ||
-      instructorId <= 0 ||
+      (req.user.role === "Admin" &&
+        (!Number.isInteger(instructorId) || instructorId <= 0)) ||
       typeof title !== "string" ||
-      !title.trim()
+      !title.trim() ||
+      title.trim().length > 200 ||
+      (description != null && typeof description !== "string") ||
+      (thumbnail != null &&
+        (typeof thumbnail !== "string" || thumbnail.length > 500))
     ) {
       return res.status(400).json({
         message:
@@ -106,8 +113,7 @@ async function addCourse(req, res) {
 async function editCourse(req, res) {
   try {
     const courseId = Number(req.params.id);
-    const { categoryId, title, description, thumbnail, instructorId } =
-      req.body;
+    const { categoryId, title, description, thumbnail } = req.body;
 
     if (!Number.isInteger(courseId) || courseId <= 0) {
       return res.status(400).json({
@@ -118,16 +124,39 @@ async function editCourse(req, res) {
     if (
       !Number.isInteger(categoryId) ||
       categoryId <= 0 ||
-      !Number.isInteger(instructorId) ||
-      instructorId <= 0 ||
+      (req.user.role === "Admin" &&
+        (!Number.isInteger(Number(req.body.instructorId)) ||
+          Number(req.body.instructorId) <= 0)) ||
       typeof title !== "string" ||
-      !title.trim()
+      !title.trim() ||
+      title.trim().length > 200 ||
+      (description != null && typeof description !== "string") ||
+      (thumbnail != null &&
+        (typeof thumbnail !== "string" || thumbnail.length > 500))
     ) {
       return res.status(400).json({
         message: "A valid categoryId, instructorId, and title are required.",
       });
     }
 
+    const existingCourse = await getCourseById(courseId);
+
+    if (!existingCourse) {
+      return res.status(404).json({
+        message: "Course not found.",
+      });
+    }
+
+    if (!canManageCourse(existingCourse, req.user)) {
+      return res.status(403).json({
+        message: "You can only edit courses assigned to your instructor account.",
+      });
+    }
+
+    const instructorId =
+      req.user.role === "Admin"
+        ? Number(req.body.instructorId)
+        : existingCourse.InstructorID;
     const instructor = await getUserById(instructorId);
 
     if (
@@ -137,14 +166,6 @@ async function editCourse(req, res) {
     ) {
       return res.status(400).json({
         message: "The selected instructor must be an active Instructor.",
-      });
-    }
-
-    const existingCourse = await getCourseById(courseId);
-
-    if (!existingCourse) {
-      return res.status(404).json({
-        message: "Course not found.",
       });
     }
 
@@ -180,6 +201,12 @@ async function removeCourse(req, res) {
 
     if (!existingCourse) {
       return res.status(404).json({ message: "Course not found." });
+    }
+
+    if (!canManageCourse(existingCourse, req.user)) {
+      return res.status(403).json({
+        message: "You can only delete courses assigned to your instructor account.",
+      });
     }
 
     const deletedFiles = await deleteCourse(courseId);

@@ -20,7 +20,7 @@ async function createCategory(name, description) {
     .input("name", require("mssql").NVarChar(100), name)
     .input(
       "description",
-      require("mssql").NVarChar(require("mssql").MAX),
+      require("mssql").NVarChar(500),
       description,
     )
     .query(`

@@ -2,6 +2,7 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const { isSupportedUploadExtension } = require("../utils/uploadValidation");
 
 const uploadDirectory = path.join(__dirname, "../uploads/materials");
 
@@ -20,17 +21,6 @@ const storage = multer.diskStorage({
   },
 });
 
-const allowedExtensions = [
-  ".pdf",
-  ".doc",
-  ".docx",
-  ".ppt",
-  ".pptx",
-  ".jpg",
-  ".jpeg",
-  ".png",
-];
-
 const upload = multer({
   storage,
 
@@ -39,10 +29,10 @@ const upload = multer({
   },
 
   fileFilter: (req, file, callback) => {
-    const extension = path.extname(file.originalname).toLowerCase();
-
-    if (!allowedExtensions.includes(extension)) {
-      return callback(new Error("Unsupported file type."));
+    if (!isSupportedUploadExtension(file)) {
+      const error = new Error("Unsupported file type.");
+      error.status = 400;
+      return callback(error);
     }
 
     callback(null, true);

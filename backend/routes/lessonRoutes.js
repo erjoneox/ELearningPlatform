@@ -19,6 +19,7 @@ const {
 
 const router = express.Router();
 const upload = require("../middleware/uploadMiddleware");
+const verifyUploadedFiles = require("../middleware/verifyUploadedFiles");
 
 router.get(
   "/courses/:courseId",
@@ -60,6 +61,7 @@ router.post(
   authenticateToken,
   authorizeRoles("Instructor"),
   upload.single("file"),
+  verifyUploadedFiles,
   addMaterial,
 );
 
@@ -68,6 +70,7 @@ router.patch(
   authenticateToken,
   authorizeRoles("Instructor"),
   upload.single("file"),
+  verifyUploadedFiles,
   editMaterial,
 );
 

@@ -20,7 +20,19 @@ const { getCourseById } = require("../models/courseModel");
 const { connectDB } = require("../config/db");
 const sql = require("mssql");
 
+const UPLOAD_DIRECTORY = path.resolve(__dirname, "../uploads/materials");
+
+function isValidId(id) {
+  return Number.isInteger(id) && id > 0;
+}
+
+function getUser(req) {
+  return req.user || null;
+}
+
 async function canManageCourse(course, user) {
+  if (!course || !user) return false;
+
   return (
     user.role === "Instructor" &&
     Number(course.InstructorID) === Number(user.userId)
@@ -28,7 +40,11 @@ async function canManageCourse(course, user) {
 }
 
 async function canAccessCourse(courseId, user) {
-  if (user.role === "Admin") return true;
+  if (!user) return false;
+
+  if (user.role === "Admin") {
+    return true;
+  }
 
   if (user.role === "Instructor") {
     const course = await getCourseById(courseId);
@@ -36,30 +52,34 @@ async function canAccessCourse(courseId, user) {
     return !!course && Number(course.InstructorID) === Number(user.userId);
   }
 
-  const pool = await connectDB();
+  if (user.role === "Student") {
+    const pool = await connectDB();
 
-  const result = await pool
-    .request()
-    .input("studentId", sql.Int, user.userId)
-    .input("courseId", sql.Int, courseId).query(`
-      SELECT TOP 1 EnrollmentID
-      FROM Enrollments
-      WHERE StudentID = @studentId
-        AND CourseID = @courseId
-        AND Status = 'Active'
-    `);
+    const result = await pool
+      .request()
+      .input("studentId", sql.Int, user.userId)
+      .input("courseId", sql.Int, courseId).query(`
+        SELECT TOP 1 EnrollmentID
+        FROM Enrollments
+        WHERE StudentID = @studentId
+          AND CourseID = @courseId
+          AND Status = 'Active'
+      `);
 
-  return result.recordset.length > 0;
+    return result.recordset.length > 0;
+  }
+
+  return false;
 }
 
-async function removeStoredMaterial(fileURL) {
-  if (!fileURL) return true;
+async function removeStoredMaterial(fileReference) {
+  if (!fileReference) return true;
 
-  const uploadDirectory = path.resolve(__dirname, "../uploads/materials");
-  const filePath = path.resolve(uploadDirectory, path.basename(fileURL));
+  const filename = path.basename(fileReference);
+  const filePath = path.resolve(UPLOAD_DIRECTORY, filename);
 
-  if (!filePath.startsWith(uploadDirectory + path.sep)) {
-    console.error("Refusing to remove a file outside the materials directory.");
+  if (!filePath.startsWith(UPLOAD_DIRECTORY + path.sep)) {
+    console.error("Invalid material file path.");
     return false;
   }
 
@@ -67,12 +87,31 @@ async function removeStoredMaterial(fileURL) {
     await fs.promises.unlink(filePath);
     return true;
   } catch (error) {
-    if (error.code !== "ENOENT") {
-      console.error("Failed to remove material file:", error.message);
-      return false;
+    if (error.code === "ENOENT") {
+      return true;
     }
 
-    return true;
+    console.error("Failed to remove material file:", error.message);
+    return false;
+  }
+}
+
+function safeDownloadName(title, extension) {
+  const safeTitle = String(title || "material")
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+    .trim()
+    .replace(/[. ]+$/g, "");
+
+  return `${safeTitle || "material"}${extension}`;
+}
+
+function sendServerError(res, message, error) {
+  console.error(message, error);
+
+  if (!res.headersSent) {
+    return res.status(500).json({
+      message,
+    });
   }
 }
 
@@ -80,7 +119,7 @@ async function listLessons(req, res) {
   try {
     const courseId = Number(req.params.courseId);
 
-    if (!Number.isInteger(courseId) || courseId <= 0) {
+    if (!isValidId(courseId)) {
       return res.status(400).json({
         message: "Invalid course ID.",
       });
@@ -94,7 +133,7 @@ async function listLessons(req, res) {
       });
     }
 
-    if (!(await canAccessCourse(courseId, req.user))) {
+    if (!(await canAccessCourse(courseId, getUser(req)))) {
       return res.status(403).json({
         message: "You do not have access to this course.",
       });
@@ -104,11 +143,7 @@ async function listLessons(req, res) {
 
     return res.status(200).json({ lessons });
   } catch (error) {
-    console.error("List lessons error:", error.message);
-
-    return res.status(500).json({
-      message: "Failed to retrieve lessons.",
-    });
+    return sendServerError(res, "Failed to retrieve lessons.", error);
   }
 }
 
@@ -118,15 +153,17 @@ async function addLesson(req, res) {
     const { title, description, videoURL, orderNumber } = req.body;
 
     if (
-      !Number.isInteger(courseId) ||
-      courseId <= 0 ||
+      !isValidId(courseId) ||
       typeof title !== "string" ||
       !title.trim() ||
-      !Number.isInteger(orderNumber) ||
-      orderNumber <= 0
+      !Number.isInteger(Number(orderNumber)) ||
+      Number(orderNumber) <= 0 ||
+      (videoURL &&
+        (typeof videoURL !== "string" ||
+          !/^https?:\/\//i.test(videoURL.trim())))
     ) {
       return res.status(400).json({
-        message: "Valid course ID, title and orderNumber are required.",
+        message: "Valid course ID, title and order number are required.",
       });
     }
 
@@ -138,7 +175,7 @@ async function addLesson(req, res) {
       });
     }
 
-    if (!(await canManageCourse(course, req.user))) {
+    if (!(await canManageCourse(course, getUser(req)))) {
       return res.status(403).json({
         message: "You can only manage lessons in your own courses.",
       });
@@ -146,9 +183,9 @@ async function addLesson(req, res) {
 
     const lesson = await createLesson(courseId, {
       title: title.trim(),
-      description,
-      videoURL,
-      orderNumber,
+      description: typeof description === "string" ? description.trim() : null,
+      videoURL: videoURL?.trim() || null,
+      orderNumber: Number(orderNumber),
     });
 
     return res.status(201).json({
@@ -162,11 +199,7 @@ async function addLesson(req, res) {
       });
     }
 
-    console.error("Create lesson error:", error.message);
-
-    return res.status(500).json({
-      message: "Failed to create lesson.",
-    });
+    return sendServerError(res, "Failed to create lesson.", error);
   }
 }
 
@@ -176,12 +209,11 @@ async function editLesson(req, res) {
     const { title, description, videoURL, orderNumber } = req.body;
 
     if (
-      !Number.isInteger(lessonId) ||
-      lessonId <= 0 ||
+      !isValidId(lessonId) ||
       typeof title !== "string" ||
       !title.trim() ||
-      !Number.isInteger(orderNumber) ||
-      orderNumber <= 0 ||
+      !Number.isInteger(Number(orderNumber)) ||
+      Number(orderNumber) <= 0 ||
       (videoURL != null &&
         (typeof videoURL !== "string" ||
           (videoURL.trim() && !/^https?:\/\//i.test(videoURL.trim()))))
@@ -201,7 +233,7 @@ async function editLesson(req, res) {
 
     const course = await getCourseById(lesson.CourseID);
 
-    if (!course || !(await canManageCourse(course, req.user))) {
+    if (!(await canManageCourse(course, getUser(req)))) {
       return res.status(403).json({
         message: "You cannot manage this lesson.",
       });
@@ -211,7 +243,7 @@ async function editLesson(req, res) {
       title: title.trim(),
       description: typeof description === "string" ? description.trim() : null,
       videoURL: videoURL?.trim() || null,
-      orderNumber,
+      orderNumber: Number(orderNumber),
     });
 
     return res.status(200).json({
@@ -225,11 +257,7 @@ async function editLesson(req, res) {
       });
     }
 
-    console.error("Update lesson error:", error.message);
-
-    return res.status(500).json({
-      message: "Failed to update lesson.",
-    });
+    return sendServerError(res, "Failed to update lesson.", error);
   }
 }
 
@@ -237,7 +265,7 @@ async function removeLesson(req, res) {
   try {
     const lessonId = Number(req.params.lessonId);
 
-    if (!Number.isInteger(lessonId) || lessonId <= 0) {
+    if (!isValidId(lessonId)) {
       return res.status(400).json({
         message: "Invalid lesson ID.",
       });
@@ -253,7 +281,7 @@ async function removeLesson(req, res) {
 
     const course = await getCourseById(lesson.CourseID);
 
-    if (!course || !(await canManageCourse(course, req.user))) {
+    if (!(await canManageCourse(course, getUser(req)))) {
       return res.status(403).json({
         message: "You cannot delete this lesson.",
       });
@@ -262,8 +290,12 @@ async function removeLesson(req, res) {
     const materialFiles = await deleteLesson(lessonId);
     let cleanupFailures = 0;
 
-    for (const fileURL of materialFiles) {
-      if (!(await removeStoredMaterial(fileURL))) cleanupFailures += 1;
+    for (const fileURL of materialFiles || []) {
+      const removed = await removeStoredMaterial(fileURL);
+
+      if (!removed) {
+        cleanupFailures++;
+      }
     }
 
     return res.status(200).json({
@@ -274,11 +306,7 @@ async function removeLesson(req, res) {
         : null,
     });
   } catch (error) {
-    console.error("Delete lesson error:", error.message);
-
-    return res.status(500).json({
-      message: "Failed to delete lesson.",
-    });
+    return sendServerError(res, "Failed to delete lesson.", error);
   }
 }
 
@@ -286,7 +314,7 @@ async function listMaterials(req, res) {
   try {
     const lessonId = Number(req.params.lessonId);
 
-    if (!Number.isInteger(lessonId) || lessonId <= 0) {
+    if (!isValidId(lessonId)) {
       return res.status(400).json({
         message: "Invalid lesson ID.",
       });
@@ -300,7 +328,7 @@ async function listMaterials(req, res) {
       });
     }
 
-    if (!(await canAccessCourse(lesson.CourseID, req.user))) {
+    if (!(await canAccessCourse(lesson.CourseID, getUser(req)))) {
       return res.status(403).json({
         message: "You do not have access to this lesson.",
       });
@@ -310,11 +338,7 @@ async function listMaterials(req, res) {
 
     return res.status(200).json({ materials });
   } catch (error) {
-    console.error("List materials error:", error.message);
-
-    return res.status(500).json({
-      message: "Failed to retrieve materials.",
-    });
+    return sendServerError(res, "Failed to retrieve materials.", error);
   }
 }
 
@@ -325,37 +349,38 @@ async function addMaterial(req, res) {
     const lessonId = Number(req.params.lessonId);
     const { title, materialType } = req.body;
 
-    if (!Number.isInteger(lessonId) || lessonId <= 0) {
+    if (!isValidId(lessonId)) {
       await removeStoredMaterial(uploadedFile?.filename);
+
       return res.status(400).json({
         message: "Invalid lesson ID.",
       });
     }
 
-    if (typeof title !== "string" || !title.trim()) {
-      await removeStoredMaterial(uploadedFile?.filename);
-      return res.status(400).json({
-        message: "Material title is required.",
-      });
-    }
-
-    if (!req.file) {
+    if (!uploadedFile) {
       return res.status(400).json({
         message: "Please select a file to upload.",
       });
     }
 
-    if (typeof materialType !== "string" || !materialType.trim()) {
-      await removeStoredMaterial(uploadedFile?.filename);
+    if (
+      typeof title !== "string" ||
+      !title.trim() ||
+      typeof materialType !== "string" ||
+      !materialType.trim()
+    ) {
+      await removeStoredMaterial(uploadedFile.filename);
+
       return res.status(400).json({
-        message: "Material type is required.",
+        message: "Material title and type are required.",
       });
     }
 
     const lesson = await getLessonById(lessonId);
 
     if (!lesson) {
-      await removeStoredMaterial(uploadedFile?.filename);
+      await removeStoredMaterial(uploadedFile.filename);
+
       return res.status(404).json({
         message: "Lesson not found.",
       });
@@ -364,20 +389,22 @@ async function addMaterial(req, res) {
     const course = await getCourseById(lesson.CourseID);
 
     if (!course) {
-      await removeStoredMaterial(uploadedFile?.filename);
+      await removeStoredMaterial(uploadedFile.filename);
+
       return res.status(404).json({
         message: "Course not found.",
       });
     }
 
-    if (!(await canManageCourse(course, req.user))) {
-      await removeStoredMaterial(uploadedFile?.filename);
+    if (!(await canManageCourse(course, getUser(req)))) {
+      await removeStoredMaterial(uploadedFile.filename);
+
       return res.status(403).json({
         message: "You cannot manage materials for this lesson.",
       });
     }
 
-    const fileURL = `/uploads/materials/${req.file.filename}`;
+    const fileURL = `/uploads/materials/${uploadedFile.filename}`;
 
     const material = await createMaterial(lessonId, {
       title: title.trim(),
@@ -390,12 +417,11 @@ async function addMaterial(req, res) {
       material,
     });
   } catch (error) {
-    await removeStoredMaterial(uploadedFile?.filename);
-    console.error("Upload material error:", error);
+    if (uploadedFile) {
+      await removeStoredMaterial(uploadedFile.filename);
+    }
 
-    return res.status(500).json({
-      message: "Failed to upload material.",
-    });
+    return sendServerError(res, "Failed to upload material.", error);
   }
 }
 
@@ -408,37 +434,46 @@ async function editMaterial(req, res) {
     const { title, materialType } = req.body;
 
     if (
-      !Number.isInteger(lessonId) ||
-      lessonId <= 0 ||
-      !Number.isInteger(materialId) ||
-      materialId <= 0 ||
+      !isValidId(lessonId) ||
+      !isValidId(materialId) ||
       typeof title !== "string" ||
       !title.trim() ||
       typeof materialType !== "string" ||
       !materialType.trim()
     ) {
-      await removeStoredMaterial(uploadedFile?.filename);
+      if (uploadedFile) {
+        await removeStoredMaterial(uploadedFile.filename);
+      }
+
       return res.status(400).json({
-        message: "Valid lesson, material, title and material type are required.",
+        message:
+          "Valid lesson, material, title and material type are required.",
       });
     }
 
     const lesson = await getLessonById(lessonId);
 
     if (!lesson) {
-      await removeStoredMaterial(uploadedFile?.filename);
+      if (uploadedFile) {
+        await removeStoredMaterial(uploadedFile.filename);
+      }
+
       return res.status(404).json({
         message: "Lesson not found.",
       });
     }
 
     const materials = await getMaterialsByLesson(lessonId);
+
     const existingMaterial = materials.find(
       (item) => Number(item.MaterialID) === materialId,
     );
 
     if (!existingMaterial) {
-      await removeStoredMaterial(uploadedFile?.filename);
+      if (uploadedFile) {
+        await removeStoredMaterial(uploadedFile.filename);
+      }
+
       return res.status(404).json({
         message: "Material not found in this lesson.",
       });
@@ -446,8 +481,11 @@ async function editMaterial(req, res) {
 
     const course = await getCourseById(lesson.CourseID);
 
-    if (!course || !(await canManageCourse(course, req.user))) {
-      await removeStoredMaterial(uploadedFile?.filename);
+    if (!(await canManageCourse(course, getUser(req)))) {
+      if (uploadedFile) {
+        await removeStoredMaterial(uploadedFile.filename);
+      }
+
       return res.status(403).json({
         message: "You cannot manage this material.",
       });
@@ -462,16 +500,22 @@ async function editMaterial(req, res) {
     });
 
     if (!updatedMaterial) {
-        await removeStoredMaterial(uploadedFile?.filename);
-        return res.status(404).json({
-          message: "Material not found.",
-        });
+      if (uploadedFile) {
+        await removeStoredMaterial(uploadedFile.filename);
+      }
+
+      return res.status(404).json({
+        message: "Material not found.",
+      });
     }
 
-    const oldFileRemoved =
-      !uploadedFile ||
-      !updatedMaterial?.PreviousFileURL ||
-      (await removeStoredMaterial(updatedMaterial.PreviousFileURL));
+    let oldFileRemoved = true;
+
+    if (uploadedFile && updatedMaterial.PreviousFileURL) {
+      oldFileRemoved = await removeStoredMaterial(
+        updatedMaterial.PreviousFileURL,
+      );
+    }
 
     return res.status(200).json({
       message: "Material updated successfully.",
@@ -481,12 +525,11 @@ async function editMaterial(req, res) {
         : "The previous material file could not be removed from storage.",
     });
   } catch (error) {
-    await removeStoredMaterial(uploadedFile?.filename);
-    console.error("Update material error:", error.message);
+    if (uploadedFile) {
+      await removeStoredMaterial(uploadedFile.filename);
+    }
 
-    return res.status(500).json({
-      message: "Failed to update material.",
-    });
+    return sendServerError(res, "Failed to update material.", error);
   }
 }
 
@@ -495,12 +538,7 @@ async function removeMaterial(req, res) {
     const lessonId = Number(req.params.lessonId);
     const materialId = Number(req.params.materialId);
 
-    if (
-      !Number.isInteger(lessonId) ||
-      lessonId <= 0 ||
-      !Number.isInteger(materialId) ||
-      materialId <= 0
-    ) {
+    if (!isValidId(lessonId) || !isValidId(materialId)) {
       return res.status(400).json({
         message: "Invalid lesson or material ID.",
       });
@@ -515,6 +553,7 @@ async function removeMaterial(req, res) {
     }
 
     const materials = await getMaterialsByLesson(lessonId);
+
     const material = materials.find(
       (item) => Number(item.MaterialID) === materialId,
     );
@@ -527,7 +566,7 @@ async function removeMaterial(req, res) {
 
     const course = await getCourseById(lesson.CourseID);
 
-    if (!course || !(await canManageCourse(course, req.user))) {
+    if (!(await canManageCourse(course, getUser(req)))) {
       return res.status(403).json({
         message: "You cannot delete this material.",
       });
@@ -543,26 +582,16 @@ async function removeMaterial(req, res) {
         : "The material record was deleted, but its file could not be removed from storage.",
     });
   } catch (error) {
-    console.error("Delete material error:", error.message);
-
-    return res.status(500).json({
-      message: "Failed to delete material.",
-    });
+    return sendServerError(res, "Failed to delete material.", error);
   }
 }
 
-// Shkarkimi i materialit me emrin e tij, jo me emrin e gjeneruar nga serveri
 async function downloadMaterial(req, res) {
   try {
     const lessonId = Number(req.params.lessonId);
     const materialId = Number(req.params.materialId);
 
-    if (
-      !Number.isInteger(lessonId) ||
-      lessonId <= 0 ||
-      !Number.isInteger(materialId) ||
-      materialId <= 0
-    ) {
+    if (!isValidId(lessonId) || !isValidId(materialId)) {
       return res.status(400).json({
         message: "Invalid lesson or material ID.",
       });
@@ -576,7 +605,7 @@ async function downloadMaterial(req, res) {
       });
     }
 
-    if (!(await canAccessCourse(lesson.CourseID, req.user))) {
+    if (!(await canAccessCourse(lesson.CourseID, getUser(req)))) {
       return res.status(403).json({
         message: "You do not have access to this lesson.",
       });
@@ -601,30 +630,24 @@ async function downloadMaterial(req, res) {
     }
 
     const filename = path.basename(material.FileURL);
-    const filePath = path.resolve(__dirname, "../uploads/materials", filename);
+    const filePath = path.resolve(UPLOAD_DIRECTORY, filename);
 
-    // Sigurohemi që skedari gjendet brenda folderit të materialeve.
-    const uploadDirectory = path.resolve(__dirname, "../uploads/materials");
+    if (!filePath.startsWith(UPLOAD_DIRECTORY + path.sep)) {
+      return res.status(400).json({
+        message: "Invalid material file path.",
+      });
+    }
 
-    if (
-      !filePath.startsWith(uploadDirectory + path.sep) ||
-      !fs.existsSync(filePath)
-    ) {
+    try {
+      await fs.promises.access(filePath, fs.constants.R_OK);
+    } catch {
       return res.status(404).json({
         message: "Material file not found.",
       });
     }
 
-    // Ruajmë prapashtesën origjinale, p.sh. .pdf, .docx ose .pptx.
     const extension = path.extname(filename);
-
-    // Përdorim titullin e materialit si emër të shkarkimit.
-    const safeTitle = material.Title.replace(
-      /[<>:"/\\|?*\x00-\x1F]/g,
-      "_",
-    ).trim();
-
-    const downloadName = `${safeTitle || "material"}${extension}`;
+    const downloadName = safeDownloadName(material.Title, extension);
 
     return res.download(filePath, downloadName, (error) => {
       if (error && !res.headersSent) {
@@ -636,13 +659,7 @@ async function downloadMaterial(req, res) {
       }
     });
   } catch (error) {
-    console.error("Download material error:", error.message);
-
-    if (!res.headersSent) {
-      return res.status(500).json({
-        message: "Failed to download material.",
-      });
-    }
+    return sendServerError(res, "Failed to download material.", error);
   }
 }
 

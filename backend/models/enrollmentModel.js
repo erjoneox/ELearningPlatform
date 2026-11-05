@@ -61,11 +61,25 @@ async function unenrollStudent(studentId, courseId) {
           AND CourseID = @CourseID;
       `);
 
-    // Fshij dorëzimet e detyrave të këtij kursi
-    await new sql.Request(transaction)
+    const submissionFileRows = await new sql.Request(transaction)
+      .input("StudentID", sql.Int, studentId)
+      .input("CourseID", sql.Int, courseId).query(`
+        DELETE submissionFile
+        OUTPUT DELETED.FileURL
+        FROM SubmissionFiles AS submissionFile
+        INNER JOIN Submissions AS submission
+          ON submission.SubmissionID = submissionFile.SubmissionID
+        INNER JOIN Assignments AS assignment
+          ON assignment.AssignmentID = submission.AssignmentID
+        WHERE submission.StudentID = @StudentID
+          AND assignment.CourseID = @CourseID;
+      `);
+
+    const submissionRows = await new sql.Request(transaction)
       .input("StudentID", sql.Int, studentId)
       .input("CourseID", sql.Int, courseId).query(`
         DELETE FROM Submissions
+        OUTPUT DELETED.FileURL
         WHERE StudentID = @StudentID
           AND AssignmentID IN (
             SELECT AssignmentID
@@ -97,7 +111,15 @@ async function unenrollStudent(studentId, courseId) {
       `);
 
     await transaction.commit();
-    return true;
+    return {
+      unenrolled: true,
+      fileURLs: [
+        ...new Set([
+          ...submissionFileRows.recordset.map((row) => row.FileURL),
+          ...submissionRows.recordset.map((row) => row.FileURL),
+        ]),
+      ].filter(Boolean),
+    };
   } catch (error) {
     if (transaction._aborted !== true) {
       try {

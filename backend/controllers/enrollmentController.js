@@ -4,6 +4,22 @@ const {
   enrollmentExists,
   unenrollStudent,
 } = require("../models/enrollmentModel");
+const path = require("path");
+const { removeStoredUploadFile } = require("../utils/storedUploadPath");
+
+async function removeSubmissionFiles(fileURLs) {
+  let failures = 0;
+  const uploadDirectory = path.resolve(__dirname, "../uploads/submissions");
+
+  for (const fileURL of fileURLs) {
+    if (!(await removeStoredUploadFile(fileURL, uploadDirectory))) {
+      failures += 1;
+      console.error("Failed to remove submission file.");
+    }
+  }
+
+  return failures;
+}
 
 async function enroll(req, res) {
   try {
@@ -63,16 +79,21 @@ async function unenroll(req, res) {
       });
     }
 
-    const unenrolled = await unenrollStudent(studentId, courseId);
+    const result = await unenrollStudent(studentId, courseId);
 
-    if (!unenrolled) {
+    if (!result) {
       return res.status(404).json({
         message: "Nuk jeni i regjistruar në këtë kurs.",
       });
     }
 
+    const cleanupFailures = await removeSubmissionFiles(result.fileURLs);
+
     return res.status(200).json({
       message: "Jeni çregjistruar me sukses nga kursi.",
+      warning: cleanupFailures
+        ? `${cleanupFailures} uploaded submission file(s) could not be removed from storage.`
+        : null,
     });
   } catch (error) {
     console.error("Gabim gjatë çregjistrimit:", error);

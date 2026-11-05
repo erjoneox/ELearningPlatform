@@ -121,7 +121,19 @@ async function deleteCourse(courseId) {
   await transaction.begin();
 
   try {
-    const submissionFiles = await new sql.Request(transaction)
+    const submissionFileRows = await new sql.Request(transaction)
+      .input("courseId", sql.Int, courseId).query(`
+        DELETE submissionFile
+        OUTPUT DELETED.FileURL
+        FROM SubmissionFiles AS submissionFile
+        INNER JOIN Submissions AS submission
+          ON submission.SubmissionID = submissionFile.SubmissionID
+        INNER JOIN Assignments AS assignment
+          ON assignment.AssignmentID = submission.AssignmentID
+        WHERE assignment.CourseID = @courseId
+      `);
+
+    const submissionRows = await new sql.Request(transaction)
       .input("courseId", sql.Int, courseId).query(`
         DELETE submission
         OUTPUT DELETED.FileURL
@@ -182,7 +194,12 @@ async function deleteCourse(courseId) {
     await transaction.commit();
 
     return {
-      submissionFiles: submissionFiles.recordset.map((row) => row.FileURL),
+      submissionFiles: [
+        ...new Set([
+          ...submissionFileRows.recordset.map((row) => row.FileURL),
+          ...submissionRows.recordset.map((row) => row.FileURL),
+        ]),
+      ].filter(Boolean),
       materialFiles: materialFiles.recordset.map((row) => row.FileURL),
     };
   } catch (error) {

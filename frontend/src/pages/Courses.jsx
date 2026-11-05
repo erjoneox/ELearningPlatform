@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Swal from "sweetalert2";
 import api from "../api/axios";
@@ -41,7 +41,12 @@ function Courses() {
   });
   const [savingCourseUpdate, setSavingCourseUpdate] = useState(false);
 
-  const canCreateCourses = user?.role === "Admin";
+  const isAdmin = user?.role === "Admin";
+  const isInstructor = user?.role === "Instructor";
+  const canCreateCourses = isAdmin || isInstructor;
+  const canManageCourse = (course) =>
+    isAdmin ||
+    (isInstructor && Number(course.InstructorID) === Number(user.userId));
   const activeInstructors = instructors.filter(
     (instructor) => instructor.Status === "Active",
   );
@@ -97,7 +102,7 @@ function Courses() {
     ),
   ].sort();
 
-  async function loadCourses() {
+  const loadCourses = useCallback(async () => {
     setLoading(true);
     setError("");
 
@@ -118,9 +123,9 @@ function Courses() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [user]);
 
-  async function loadCategories() {
+  const loadCategories = useCallback(async () => {
     try {
       const response = await api.get("/categories");
 
@@ -132,7 +137,7 @@ function Courses() {
     } catch (err) {
       console.error("Categories error:", err);
     }
-  }
+  }, []);
 
   async function handleCreateCategory(event) {
     event.preventDefault();
@@ -172,7 +177,7 @@ function Courses() {
     setActiveCategoryId(null);
   }
 
-  async function loadInstructors() {
+  const loadInstructors = useCallback(async () => {
     setLoadingInstructors(true);
     setInstructorError("");
 
@@ -191,9 +196,9 @@ function Courses() {
     } finally {
       setLoadingInstructors(false);
     }
-  }
+  }, []);
 
-  async function loadMyCourses() {
+  const loadMyCourses = useCallback(async () => {
     if (user?.role !== "Student") return;
 
     try {
@@ -210,12 +215,12 @@ function Courses() {
         err.response?.data || err,
       );
     }
-  }
+  }, [user?.role]);
 
   useEffect(() => {
     loadCourses();
     loadCategories();
-  }, []);
+  }, [loadCourses, loadCategories]);
 
   useEffect(() => {
     if (user?.role === "Student") {
@@ -224,7 +229,7 @@ function Courses() {
     if (user?.role === "Admin") {
       loadInstructors();
     }
-  }, [user?.role]);
+  }, [loadInstructors, loadMyCourses, user?.role]);
 
   useEffect(() => {
     if (!activeCategoryId) return undefined;
@@ -251,13 +256,14 @@ function Courses() {
     setCreating(true);
 
     try {
-      await api.post("/courses", {
+      const courseData = {
         title: form.title.trim(),
         description: form.description.trim(),
         thumbnail: form.thumbnail.trim() || null,
         categoryId: Number(form.categoryId),
-        instructorId: Number(form.instructorId),
-      });
+      };
+      if (isAdmin) courseData.instructorId = Number(form.instructorId);
+      await api.post("/courses", courseData);
 
       await Swal.fire({
         icon: "success",
@@ -302,7 +308,7 @@ function Courses() {
     if (
       !editForm.title.trim() ||
       !Number(editForm.categoryId) ||
-      !Number(editForm.instructorId)
+      (isAdmin && !Number(editForm.instructorId))
     ) {
       Swal.fire({
         icon: "warning",
@@ -315,13 +321,14 @@ function Courses() {
     setSavingCourseUpdate(true);
 
     try {
-      await api.put(`/courses/${editingCourseId}`, {
+      const courseData = {
         title: editForm.title.trim(),
         description: editForm.description.trim(),
         categoryId: Number(editForm.categoryId),
-        instructorId: Number(editForm.instructorId),
         thumbnail: editForm.thumbnail.trim() || null,
-      });
+      };
+      if (isAdmin) courseData.instructorId = Number(editForm.instructorId);
+      await api.put(`/courses/${editingCourseId}`, courseData);
 
       setEditingCourseId(null);
       await loadCourses();
@@ -457,7 +464,7 @@ function Courses() {
               >
                 <div>
                   <span className="badge bg-white bg-opacity-20 text-black rounded-pill px-3 py-2 mb-3">
-                    Admin / Instruktori
+                    {isAdmin ? "Admin" : "Instruktori"}
                   </span>
                   <h3 className="fw-bold fs-4 mb-2">Krijo kurs të ri</h3>
                   <p className="text-white-50 small mb-0">
@@ -467,8 +474,7 @@ function Courses() {
                 </div>
                 <div className="d-none d-lg-block">
                   <small className="text-white-50 fs-7">
-                    * Sigurohuni që kategoria dhe mësimdhënësi janë caktuar
-                    saktë.
+                    * Sigurohuni që kategoria dhe të dhënat e kursit janë të sakta.
                   </small>
                 </div>
               </div>
@@ -518,7 +524,7 @@ function Courses() {
                     </div>
 
                     {/* Mësimdhënësi */}
-                    <div className="col-md-6">
+                    {isAdmin && <div className="col-md-6">
                       <label
                         className="form-label fs-7 fw-bold text-uppercase text-secondary"
                         htmlFor="course-instructor"
@@ -569,7 +575,7 @@ function Courses() {
                             </Link>
                           </div>
                         )}
-                    </div>
+                    </div>}
 
                     {/* URL e Imazhit */}
                     <div className="col-md-6">
@@ -615,8 +621,8 @@ function Courses() {
                       disabled={
                         creating ||
                         categories.length === 0 ||
-                        loadingInstructors ||
-                        activeInstructors.length === 0
+                        (isAdmin &&
+                          (loadingInstructors || activeInstructors.length === 0))
                       }
                     >
                       {creating ? "Duke krijuar..." : "Publiko Kursin"}
@@ -628,7 +634,7 @@ function Courses() {
           </div>
         )}
 
-        {canCreateCourses && (
+        {isAdmin && (
           <ManagementFormPanel
             as="form"
             eyebrow="ADMIN"
@@ -702,7 +708,7 @@ function Courses() {
         {!loading && !error && courses.length === 0 && (
           <div className="alert alert-info border-0 shadow-sm">
             {user?.role === "Instructor"
-              ? "Nuk ke kurse të caktuara. Kërko nga administratori të caktojë kursin te llogaria jote."
+              ? "Nuk ke ende kurse. Krijo kursin tënd nga formulari më sipër."
               : "Nuk ka kurse aktive për momentin."}
           </div>
         )}
@@ -830,7 +836,7 @@ function Courses() {
                             Shiko kursin
                           </Link>
 
-                          {user?.role === "Admin" && (
+                          {canManageCourse(course) && (
                             <>
                               <button
                                 type="button"
@@ -949,6 +955,8 @@ function Courses() {
                           ))}
                         </select>
 
+                        {isAdmin && (
+                        <>
                         <label
                           className="form-label small fw-semibold text-secondary"
                           htmlFor={`course-instructor-${courseId}`}
@@ -981,6 +989,8 @@ function Courses() {
                               </option>
                             ))}
                         </select>
+                        </>
+                        )}
 
                         <label
                           className="form-label small fw-semibold text-secondary"

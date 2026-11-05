@@ -19,17 +19,22 @@ router.get("/", listCourses);
 router.post(
   "/",
   authenticateToken,
-  authorizeRoles("Admin"),
+  authorizeRoles("Admin", "Instructor"),
   addCourse,
 );
 
 router.put(
   "/:id",
   authenticateToken,
-  authorizeRoles("Admin"),
+  authorizeRoles("Admin", "Instructor"),
   editCourse,
 );
 
-router.delete("/:id", authenticateToken, authorizeRoles("Admin"), removeCourse);
+router.delete(
+  "/:id",
+  authenticateToken,
+  authorizeRoles("Admin", "Instructor"),
+  removeCourse,
+);
 
 module.exports = router;

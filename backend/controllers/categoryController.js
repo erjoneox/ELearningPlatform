@@ -23,9 +23,12 @@ async function createCategory(req, res) {
     });
   }
 
-  if (description != null && typeof description !== "string") {
+  if (
+    description != null &&
+    (typeof description !== "string" || description.trim().length > 500)
+  ) {
     return res.status(400).json({
-      message: "Category description must be text.",
+      message: "Category description must be text of at most 500 characters.",
     });
   }
 
