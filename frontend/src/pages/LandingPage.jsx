@@ -27,9 +27,9 @@ export default function LandingPage() {
                 through Collaboration
               </h1>
               <p className="text-secondary lead fs-6 mb-4 pe-lg-4">
-                The all-in-one platform where students and teachers interact
-                seamlessly through interactive materials, videos, and real-time
-                quizzes.
+                A learning platform where instructors organize course videos,
+                materials, assignments, and quizzes, while students follow
+                lessons and review their results.
               </p>
               <div className="d-flex align-items-center gap-3 flex-wrap">
                 <Link
@@ -56,8 +56,8 @@ export default function LandingPage() {
 
             <div className="col-lg-6">
               <img
-                src="./public/landing-logo.png"
-                alt="Platform Preview"
+                src="/landing-logo.png"
+                alt="EduFlow learning platform"
                 className="img-fluid rounded-3 w-100"
                 style={{ maxHeight: "420px", objectFit: "cover" }}
               />
@@ -66,32 +66,32 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* STATISTIKAT */}
+      {/* PLATFORM CAPABILITIES */}
       <section className="py-5 border-bottom border-top border-light">
         <div className="container">
           <div className="row text-center g-4">
             <div className="col-6 col-md-3">
-              <h2 className="fw-bold fs-1 mb-1 text-dark">50k+</h2>
+              <h2 className="fw-bold fs-4 mb-1 text-dark">Courses</h2>
               <p className="text-secondary small fw-bold text-uppercase tracking-wider mb-0">
-                Active Students
+                Organized learning
               </p>
             </div>
             <div className="col-6 col-md-3">
-              <h2 className="fw-bold fs-1 mb-1 text-dark">1.2k+</h2>
+              <h2 className="fw-bold fs-4 mb-1 text-dark">Lessons</h2>
               <p className="text-secondary small fw-bold text-uppercase tracking-wider mb-0">
-                Expert Teachers
+                Video and materials
               </p>
             </div>
             <div className="col-6 col-md-3">
-              <h2 className="fw-bold fs-1 mb-1 text-dark">800+</h2>
+              <h2 className="fw-bold fs-4 mb-1 text-dark">Assignments</h2>
               <p className="text-secondary small fw-bold text-uppercase tracking-wider mb-0">
-                Premium Courses
+                Submission and feedback
               </p>
             </div>
             <div className="col-6 col-md-3">
-              <h2 className="fw-bold fs-1 mb-1 text-dark">98%</h2>
+              <h2 className="fw-bold fs-4 mb-1 text-dark">Quizzes</h2>
               <p className="text-secondary small fw-bold text-uppercase tracking-wider mb-0">
-                Success Rate
+                Attempts and results
               </p>
             </div>
           </div>
@@ -127,8 +127,8 @@ export default function LandingPage() {
                   Interactive Video Lessons
                 </h5>
                 <p className="text-secondary small mb-0">
-                  Host and stream high-quality video content with built-in
-                  progress tracking and annotations for deeper understanding.
+                  Add video links to lessons and let students track their
+                  completion through the course.
                 </p>
               </div>
             </div>
@@ -146,8 +146,8 @@ export default function LandingPage() {
                 </div>
                 <h5 className="fw-bold text-dark mb-2">Smart Assessments</h5>
                 <p className="text-secondary small mb-0">
-                  Create dynamic quizzes and tests with instant feedback. Track
-                  performance analytics to identify areas for improvement.
+                  Create quizzes with answer validation, automatic scoring, and
+                  stored student results.
                 </p>
               </div>
             </div>
