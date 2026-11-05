@@ -7,6 +7,9 @@ const {
   removeAssignment,
   listSubmissions,
   submitWork,
+  editSubmission,
+  removeSubmissionFileWork,
+  removeStudentSubmission,
   downloadSubmission,
   gradeWork,
   listMySubmissions,
@@ -18,6 +21,7 @@ const {
 } = require("../middleware/authMiddleware");
 
 const submissionUpload = require("../middleware/submissionUploadMiddleware");
+const verifyUploadedFiles = require("../middleware/verifyUploadedFiles");
 
 const router = express.Router();
 
@@ -67,12 +71,43 @@ router.post(
   "/:assignmentId/submit",
   authenticateToken,
   authorizeRoles("Student"),
-  submissionUpload.single("file"),
+  submissionUpload.array("files", 10),
+  verifyUploadedFiles,
   submitWork,
+);
+
+router.put(
+  "/:assignmentId/submission",
+  authenticateToken,
+  authorizeRoles("Student"),
+  submissionUpload.array("files", 10),
+  verifyUploadedFiles,
+  editSubmission,
+);
+
+router.delete(
+  "/submissions/:submissionId/files/:fileId",
+  authenticateToken,
+  authorizeRoles("Student"),
+  removeSubmissionFileWork,
+);
+
+router.delete(
+  "/submissions/:submissionId",
+  authenticateToken,
+  authorizeRoles("Student"),
+  removeStudentSubmission,
 );
 
 router.get(
   "/submissions/:submissionId/file",
+  authenticateToken,
+  authorizeRoles("Instructor", "Student"),
+  downloadSubmission,
+);
+
+router.get(
+  "/submissions/:submissionId/files/:fileId",
   authenticateToken,
   authorizeRoles("Instructor", "Student"),
   downloadSubmission,

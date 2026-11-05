@@ -6,7 +6,11 @@ const {
   getAssignmentById,
   getSubmissionsByAssignment,
   getSubmissionById,
+  getSubmissionFileById,
   submitAssignment,
+  updateSubmissionFiles,
+  removeSubmissionFile,
+  deleteStudentSubmission,
   gradeSubmission,
   getSubmissionsByStudent,
 } = require("../models/assignmentModel");
@@ -18,6 +22,10 @@ const { connectDB } = require("../config/db");
 const sql = require("mssql");
 const fs = require("fs/promises");
 const path = require("path");
+const {
+  removeStoredUploadFile,
+  resolveStoredUploadPath,
+} = require("../utils/storedUploadPath");
 
 async function hasEnrollment(studentId, courseId) {
   const pool = await connectDB();
@@ -48,6 +56,13 @@ async function removeUploadedFile(file) {
 
   try {
     await fs.unlink(file.path);
+    const uploadDirectory = path.resolve(__dirname, "../uploads/submissions");
+    const parentDirectory = path.dirname(file.path);
+    if (parentDirectory !== uploadDirectory) {
+      await fs.rmdir(parentDirectory).catch((error) => {
+        if (error.code !== "ENOENT" && error.code !== "ENOTEMPTY") throw error;
+      });
+    }
   } catch (error) {
     if (error.code !== "ENOENT") {
       console.error("Failed to remove uploaded file:", error.message);
@@ -59,22 +74,17 @@ async function removeStoredFiles(fileURLs, uploadDirectory) {
   let failures = 0;
 
   for (const fileURL of fileURLs.filter(Boolean)) {
-    const filename = path.basename(fileURL);
-    const filePath = path.resolve(uploadDirectory, filename);
+    const filePath = resolveStoredUploadPath(fileURL, uploadDirectory);
 
-    if (!filePath.startsWith(path.resolve(uploadDirectory) + path.sep)) {
+    if (!filePath) {
       console.error("Refusing to remove a file outside the upload directory.");
       failures += 1;
       continue;
     }
 
-    try {
-      await fs.unlink(filePath);
-    } catch (error) {
-      if (error.code !== "ENOENT") {
-        console.error("Failed to remove stored file:", error.message);
-        failures += 1;
-      }
+    if (!(await removeStoredUploadFile(fileURL, uploadDirectory))) {
+      console.error("Failed to remove a stored submission file.");
+      failures += 1;
     }
   }
 
@@ -406,23 +416,28 @@ async function listSubmissions(req, res) {
 }
 
 async function submitWork(req, res) {
-  const uploadedFile = req.file;
+  const uploadedFiles = req.files || [];
 
   try {
     const assignmentId = Number(req.params.assignmentId);
 
-    if (!Number.isInteger(assignmentId) || assignmentId <= 0 || !uploadedFile) {
-      await removeUploadedFile(uploadedFile);
+    if (
+      !Number.isInteger(assignmentId) ||
+      assignmentId <= 0 ||
+      uploadedFiles.length < 1 ||
+      uploadedFiles.length > 10
+    ) {
+      await Promise.all(uploadedFiles.map(removeUploadedFile));
 
       return res.status(400).json({
-        message: "Valid assignment ID and a file are required.",
+        message: "A valid assignment ID and 1 to 10 files are required.",
       });
     }
 
     const assignment = await getAssignmentById(assignmentId);
 
     if (!assignment) {
-      await removeUploadedFile(uploadedFile);
+      await Promise.all(uploadedFiles.map(removeUploadedFile));
 
       return res.status(404).json({
         message: "Assignment not found.",
@@ -432,7 +447,7 @@ async function submitWork(req, res) {
     const course = await getCourseById(assignment.CourseID);
 
     if (!course || course.Status !== "Active") {
-      await removeUploadedFile(uploadedFile);
+      await Promise.all(uploadedFiles.map(removeUploadedFile));
 
       return res.status(404).json({
         message: "Course not found.",
@@ -442,7 +457,7 @@ async function submitWork(req, res) {
     const enrolled = await hasEnrollment(req.user.userId, assignment.CourseID);
 
     if (!enrolled) {
-      await removeUploadedFile(uploadedFile);
+      await Promise.all(uploadedFiles.map(removeUploadedFile));
 
       return res.status(403).json({
         message: "You must be enrolled in this course.",
@@ -450,27 +465,41 @@ async function submitWork(req, res) {
     }
 
     if (assignment.DueDate && new Date() > new Date(assignment.DueDate)) {
-      await removeUploadedFile(uploadedFile);
+      await Promise.all(uploadedFiles.map(removeUploadedFile));
 
       return res.status(400).json({
         message: "The assignment deadline has passed.",
       });
     }
 
-    const fileURL = `/uploads/submissions/${uploadedFile.filename}`;
-
+    const fileURLs = uploadedFiles.map(
+      (file) =>
+        `/uploads/submissions/${path
+          .relative(
+            path.resolve(__dirname, "../uploads/submissions"),
+            file.path,
+          )
+          .split(path.sep)
+          .join("/")}`,
+    );
     const submission = await submitAssignment(
       assignmentId,
       req.user.userId,
-      fileURL,
+      fileURLs,
     );
+    if (!submission) {
+      await Promise.all(uploadedFiles.map(removeUploadedFile));
+      return res.status(400).json({
+        message: "The assignment deadline has passed.",
+      });
+    }
 
     return res.status(201).json({
       message: "Assignment submitted successfully.",
       submission,
     });
   } catch (error) {
-    await removeUploadedFile(uploadedFile);
+    await Promise.all(uploadedFiles.map(removeUploadedFile));
 
     if (error.number === 2601 || error.number === 2627) {
       return res.status(409).json({
@@ -486,6 +515,228 @@ async function submitWork(req, res) {
   }
 }
 
+async function editSubmission(req, res) {
+  const uploadedFiles = req.files || [];
+
+  try {
+    const assignmentId = Number(req.params.assignmentId);
+
+    if (
+      !Number.isInteger(assignmentId) ||
+      assignmentId <= 0 ||
+      uploadedFiles.length < 1 ||
+      uploadedFiles.length > 10
+    ) {
+      await Promise.all(uploadedFiles.map(removeUploadedFile));
+      return res.status(400).json({
+        message: "A valid assignment ID and 1 to 10 replacement files are required.",
+      });
+    }
+
+    const pool = await connectDB();
+    const result = await pool
+      .request()
+      .input("assignmentId", sql.Int, assignmentId)
+      .input("studentId", sql.Int, req.user.userId).query(`
+        SELECT s.SubmissionID, s.Grade, a.DueDate, a.CourseID
+        FROM Submissions s
+        INNER JOIN Assignments a
+          ON a.AssignmentID = s.AssignmentID
+        WHERE s.AssignmentID = @assignmentId
+          AND s.StudentID = @studentId
+      `);
+    const existing = result.recordset[0];
+
+    if (!existing) {
+      await Promise.all(uploadedFiles.map(removeUploadedFile));
+      return res.status(404).json({
+        message: "Your submission for this assignment was not found.",
+      });
+    }
+
+    if (existing.Grade != null) {
+      await Promise.all(uploadedFiles.map(removeUploadedFile));
+      return res.status(409).json({
+        message: "A graded submission cannot be edited.",
+      });
+    }
+
+    if (existing.DueDate && Date.now() > new Date(existing.DueDate).getTime()) {
+      await Promise.all(uploadedFiles.map(removeUploadedFile));
+      return res.status(400).json({
+        message: "The assignment deadline has passed.",
+      });
+    }
+
+    if (!(await hasEnrollment(req.user.userId, existing.CourseID))) {
+      await Promise.all(uploadedFiles.map(removeUploadedFile));
+      return res.status(403).json({
+        message: "You must be enrolled in this course.",
+      });
+    }
+
+    const fileURLs = uploadedFiles.map(
+      (file) =>
+        `/uploads/submissions/${path
+          .relative(
+            path.resolve(__dirname, "../uploads/submissions"),
+            file.path,
+          )
+          .split(path.sep)
+          .join("/")}`,
+    );
+    const resultOfUpdate = await updateSubmissionFiles(
+      existing.SubmissionID,
+      req.user.userId,
+      fileURLs,
+    );
+
+    if (!resultOfUpdate) {
+      await Promise.all(uploadedFiles.map(removeUploadedFile));
+      return res.status(409).json({
+        message:
+          "This submission is no longer editable because it has been graded or the deadline has passed.",
+      });
+    }
+
+    const cleanupFailures = await removeStoredFiles(
+      resultOfUpdate.replacedFileURLs,
+      path.join(__dirname, "../uploads/submissions"),
+    );
+
+    return res.status(200).json({
+      message: "Submission updated successfully.",
+      submission: resultOfUpdate.submission,
+      warning: cleanupFailures
+        ? `${cleanupFailures} replaced file(s) could not be removed from storage.`
+        : null,
+    });
+  } catch (error) {
+    await Promise.all(uploadedFiles.map(removeUploadedFile));
+    console.error("Edit submission error:", error.message);
+    return res.status(500).json({
+      message: "Failed to update submission.",
+    });
+  }
+}
+
+async function removeSubmissionFileWork(req, res) {
+  try {
+    const submissionId = Number(req.params.submissionId);
+    const fileId = Number(req.params.fileId);
+
+    if (
+      !Number.isInteger(submissionId) ||
+      submissionId <= 0 ||
+      !Number.isInteger(fileId) ||
+      fileId <= 0
+    ) {
+      return res.status(400).json({
+        message: "Invalid submission or file ID.",
+      });
+    }
+
+    const result = await removeSubmissionFile(
+      submissionId,
+      req.user.userId,
+      fileId,
+    );
+
+    if (result.status === "not_found" || result.status === "file_not_found") {
+      return res.status(404).json({
+        message: "Submission or file not found.",
+      });
+    }
+
+    if (result.status === "graded") {
+      return res.status(409).json({
+        message: "A graded submission cannot be changed.",
+      });
+    }
+
+    if (result.status === "deadline_passed") {
+      return res.status(400).json({
+        message: "The assignment deadline has passed.",
+      });
+    }
+
+    if (result.status === "last_file") {
+      return res.status(409).json({
+        message: "A submission must contain at least one file. Delete the entire submission to remove it.",
+      });
+    }
+
+    const cleanupFailures = await removeStoredFiles(
+      [result.fileURL],
+      path.join(__dirname, "../uploads/submissions"),
+    );
+
+    return res.status(200).json({
+      message: "Submission file removed successfully.",
+      warning: cleanupFailures
+        ? "The file was removed from the submission but could not be deleted from storage."
+        : null,
+    });
+  } catch (error) {
+    console.error("Remove submission file error:", error.message);
+    return res.status(500).json({
+      message: "Failed to remove submission file.",
+    });
+  }
+}
+
+async function removeStudentSubmission(req, res) {
+  try {
+    const submissionId = Number(req.params.submissionId);
+
+    if (!Number.isInteger(submissionId) || submissionId <= 0) {
+      return res.status(400).json({
+        message: "Invalid submission ID.",
+      });
+    }
+
+    const result = await deleteStudentSubmission(
+      submissionId,
+      req.user.userId,
+    );
+
+    if (result.status === "not_found") {
+      return res.status(404).json({
+        message: "Your submission was not found.",
+      });
+    }
+
+    if (result.status === "graded") {
+      return res.status(409).json({
+        message: "A graded submission cannot be deleted.",
+      });
+    }
+
+    if (result.status === "deadline_passed") {
+      return res.status(400).json({
+        message: "The assignment deadline has passed.",
+      });
+    }
+
+    const cleanupFailures = await removeStoredFiles(
+      result.fileURLs,
+      path.join(__dirname, "../uploads/submissions"),
+    );
+
+    return res.status(200).json({
+      message: "Submission and its files deleted successfully.",
+      warning: cleanupFailures
+        ? `${cleanupFailures} uploaded file(s) could not be removed from storage.`
+        : null,
+    });
+  } catch (error) {
+    console.error("Delete submission error:", error.message);
+    return res.status(500).json({
+      message: "Failed to delete submission.",
+    });
+  }
+}
+
 async function downloadSubmission(req, res) {
   try {
     const submissionId = Number(req.params.submissionId);
@@ -496,7 +747,17 @@ async function downloadSubmission(req, res) {
       });
     }
 
-    const submission = await getSubmissionById(submissionId);
+    const fileId =
+      req.params.fileId == null ? null : Number(req.params.fileId);
+    if (fileId != null && (!Number.isInteger(fileId) || fileId <= 0)) {
+      return res.status(400).json({
+        message: "Invalid submission file ID.",
+      });
+    }
+
+    const submission = fileId
+      ? await getSubmissionFileById(submissionId, fileId)
+      : await getSubmissionById(submissionId);
 
     if (!submission) {
       return res.status(404).json({
@@ -518,15 +779,17 @@ async function downloadSubmission(req, res) {
       }
     }
 
-    const filename = path.posix.basename(submission.FileURL || "");
-
-    if (!filename || filename === "." || filename === "/") {
+    const uploadDirectory = path.resolve(__dirname, "../uploads/submissions");
+    const filePath = resolveStoredUploadPath(
+      submission.FileURL,
+      uploadDirectory,
+    );
+    if (!filePath) {
       return res.status(404).json({
         message: "Submission file not found.",
       });
     }
-
-    const filePath = path.join(__dirname, "../uploads/submissions", filename);
+    const filename = path.basename(filePath);
 
     return res.download(filePath, filename, (error) => {
       if (error) {
@@ -648,6 +911,9 @@ module.exports = {
   removeAssignment,
   listSubmissions,
   submitWork,
+  editSubmission,
+  removeSubmissionFileWork,
+  removeStudentSubmission,
   downloadSubmission,
   gradeWork,
   listMySubmissions,

@@ -46,6 +46,17 @@ async function deleteAssignment(assignmentId) {
   await transaction.begin();
 
   try {
+    const filesResult = await new sql.Request(transaction)
+      .input("assignmentId", sql.Int, assignmentId).query(`
+        DELETE FROM SubmissionFiles
+        OUTPUT DELETED.FileURL
+        WHERE SubmissionID IN (
+          SELECT SubmissionID
+          FROM Submissions
+          WHERE AssignmentID = @assignmentId
+        )
+      `);
+
     const submissionResult = await new sql.Request(transaction)
       .input("assignmentId", sql.Int, assignmentId).query(`
         DELETE FROM Submissions
@@ -61,7 +72,12 @@ async function deleteAssignment(assignmentId) {
 
     await transaction.commit();
 
-    return submissionResult.recordset.map((submission) => submission.FileURL);
+    return [
+      ...new Set([
+        ...filesResult.recordset.map((file) => file.FileURL),
+        ...submissionResult.recordset.map((submission) => submission.FileURL),
+      ]),
+    ].filter(Boolean);
   } catch (error) {
     if (transaction._aborted !== true) {
       await transaction.rollback();
@@ -164,7 +180,14 @@ async function getSubmissionsByAssignment(assignmentId) {
         s.FileURL,
         s.SubmittedAt,
         s.Grade,
-        s.Feedback
+        s.Feedback,
+        JSON_QUERY((
+          SELECT sf.SubmissionFileID, sf.FileURL
+          FROM SubmissionFiles sf
+          WHERE sf.SubmissionID = s.SubmissionID
+          ORDER BY sf.SubmissionFileID
+          FOR JSON PATH
+        )) AS Files
       FROM Submissions s
       INNER JOIN Users u
         ON u.UserID = s.StudentID
@@ -172,7 +195,10 @@ async function getSubmissionsByAssignment(assignmentId) {
       ORDER BY s.SubmittedAt DESC
     `);
 
-  return result.recordset;
+  return result.recordset.map((submission) => ({
+    ...submission,
+    Files: JSON.parse(submission.Files || "[]"),
+  }));
 }
 
 async function getSubmissionById(submissionId) {
@@ -185,6 +211,7 @@ async function getSubmissionById(submissionId) {
         s.SubmissionID,
         s.StudentID,
         s.FileURL,
+        s.Grade,
         a.CourseID
       FROM Submissions s
       INNER JOIN Assignments a
@@ -195,20 +222,41 @@ async function getSubmissionById(submissionId) {
   return result.recordset[0] || null;
 }
 
-async function submitAssignment(assignmentId, studentId, fileURL) {
+async function getSubmissionFileById(submissionId, submissionFileId) {
   const pool = await connectDB();
 
-  const result = await pool
-    .request()
-    .input("assignmentId", sql.Int, assignmentId)
-    .input("studentId", sql.Int, studentId)
-    .input("fileURL", sql.NVarChar(500), fileURL).query(`
-      INSERT INTO Submissions (
-        AssignmentID,
-        StudentID,
-        FileURL,
-        SubmittedAt
-      )
+  const result = await pool.request()
+    .input("submissionId", sql.Int, submissionId)
+    .input("submissionFileId", sql.Int, submissionFileId).query(`
+      SELECT
+        s.SubmissionID,
+        s.StudentID,
+        sf.FileURL,
+        a.CourseID
+      FROM SubmissionFiles sf
+      INNER JOIN Submissions s
+        ON s.SubmissionID = sf.SubmissionID
+      INNER JOIN Assignments a
+        ON a.AssignmentID = s.AssignmentID
+      WHERE s.SubmissionID = @submissionId
+        AND sf.SubmissionFileID = @submissionFileId
+    `);
+
+  return result.recordset[0] || null;
+}
+
+async function submitAssignment(assignmentId, studentId, fileURLs) {
+  const pool = await connectDB();
+  const transaction = new sql.Transaction(pool);
+
+  await transaction.begin();
+
+  try {
+    const result = await new sql.Request(transaction)
+      .input("assignmentId", sql.Int, assignmentId)
+      .input("studentId", sql.Int, studentId)
+      .input("fileURL", sql.NVarChar(500), fileURLs[0]).query(`
+      INSERT INTO Submissions (AssignmentID, StudentID, FileURL, SubmittedAt)
       OUTPUT
         INSERTED.SubmissionID,
         INSERTED.AssignmentID,
@@ -217,15 +265,295 @@ async function submitAssignment(assignmentId, studentId, fileURL) {
         INSERTED.SubmittedAt,
         INSERTED.Grade,
         INSERTED.Feedback
-      VALUES (
+      SELECT
         @assignmentId,
         @studentId,
         @fileURL,
-        GETDATE()
+        SYSDATETIME()
+      WHERE EXISTS (
+        SELECT 1
+        FROM Assignments
+        WHERE AssignmentID = @assignmentId
+          AND (DueDate IS NULL OR DueDate >= SYSUTCDATETIME())
       )
     `);
 
-  return result.recordset[0];
+    const submission = result.recordset[0];
+    if (!submission) {
+      await transaction.rollback();
+      return null;
+    }
+
+    for (const fileURL of fileURLs) {
+      await new sql.Request(transaction)
+        .input("submissionId", sql.Int, submission.SubmissionID)
+        .input("fileURL", sql.NVarChar(500), fileURL).query(`
+          INSERT INTO SubmissionFiles (SubmissionID, FileURL)
+          VALUES (@submissionId, @fileURL)
+        `);
+    }
+
+    await transaction.commit();
+    return { ...submission, Files: fileURLs };
+  } catch (error) {
+    if (transaction._aborted !== true) {
+      await transaction.rollback();
+    }
+    throw error;
+  }
+}
+
+async function updateSubmissionFiles(submissionId, studentId, fileURLs) {
+  const pool = await connectDB();
+  const transaction = new sql.Transaction(pool);
+
+  await transaction.begin();
+
+  try {
+    const current = await new sql.Request(transaction)
+      .input("submissionId", sql.Int, submissionId)
+      .input("studentId", sql.Int, studentId).query(`
+        SELECT
+          s.SubmissionID,
+          s.Grade,
+          CASE
+            WHEN a.DueDate IS NULL OR a.DueDate >= SYSUTCDATETIME() THEN 1
+            ELSE 0
+          END AS CanEdit
+        FROM Submissions AS s WITH (UPDLOCK, ROWLOCK)
+        INNER JOIN Assignments AS a
+          ON a.AssignmentID = s.AssignmentID
+        WHERE s.SubmissionID = @submissionId
+          AND s.StudentID = @studentId
+      `);
+
+    if (
+      !current.recordset[0] ||
+      current.recordset[0].Grade != null ||
+      current.recordset[0].CanEdit !== 1
+    ) {
+      await transaction.rollback();
+      return null;
+    }
+
+    const previousFiles = await new sql.Request(transaction)
+      .input("submissionId", sql.Int, submissionId).query(`
+        DELETE FROM SubmissionFiles
+        OUTPUT DELETED.FileURL
+        WHERE SubmissionID = @submissionId
+      `);
+
+    for (const fileURL of fileURLs) {
+      await new sql.Request(transaction)
+        .input("submissionId", sql.Int, submissionId)
+        .input("fileURL", sql.NVarChar(500), fileURL).query(`
+          INSERT INTO SubmissionFiles (SubmissionID, FileURL)
+          VALUES (@submissionId, @fileURL)
+        `);
+    }
+
+    const updated = await new sql.Request(transaction)
+      .input("submissionId", sql.Int, submissionId)
+      .input("fileURL", sql.NVarChar(500), fileURLs[0]).query(`
+        UPDATE Submissions
+        SET FileURL = @fileURL,
+            SubmittedAt = SYSDATETIME()
+        OUTPUT
+          INSERTED.SubmissionID,
+          INSERTED.AssignmentID,
+          INSERTED.StudentID,
+          INSERTED.FileURL,
+          INSERTED.SubmittedAt,
+          INSERTED.Grade,
+          INSERTED.Feedback
+        WHERE SubmissionID = @submissionId
+      `);
+
+    await transaction.commit();
+    return {
+      submission: { ...updated.recordset[0], Files: fileURLs },
+      replacedFileURLs: previousFiles.recordset.map((file) => file.FileURL),
+    };
+  } catch (error) {
+    if (transaction._aborted !== true) {
+      await transaction.rollback();
+    }
+    throw error;
+  }
+}
+
+async function removeSubmissionFile(submissionId, studentId, submissionFileId) {
+  const pool = await connectDB();
+  const transaction = new sql.Transaction(pool);
+
+  await transaction.begin();
+
+  try {
+    const submissionResult = await new sql.Request(transaction)
+      .input("submissionId", sql.Int, submissionId)
+      .input("studentId", sql.Int, studentId).query(`
+        SELECT
+          s.SubmissionID,
+          s.Grade,
+          CASE
+            WHEN a.DueDate IS NULL OR a.DueDate >= SYSUTCDATETIME() THEN 1
+            ELSE 0
+          END AS CanEdit
+        FROM Submissions AS s WITH (UPDLOCK, ROWLOCK)
+        INNER JOIN Assignments AS a
+          ON a.AssignmentID = s.AssignmentID
+        WHERE s.SubmissionID = @submissionId
+          AND s.StudentID = @studentId
+      `);
+    const submission = submissionResult.recordset[0];
+
+    if (!submission) {
+      await transaction.rollback();
+      return { status: "not_found" };
+    }
+
+    if (submission.Grade != null) {
+      await transaction.rollback();
+      return { status: "graded" };
+    }
+
+    if (submission.CanEdit !== 1) {
+      await transaction.rollback();
+      return { status: "deadline_passed" };
+    }
+
+    const fileResult = await new sql.Request(transaction)
+      .input("submissionId", sql.Int, submissionId)
+      .input("submissionFileId", sql.Int, submissionFileId).query(`
+        SELECT SubmissionFileID, FileURL
+        FROM SubmissionFiles
+        WHERE SubmissionID = @submissionId
+          AND SubmissionFileID = @submissionFileId
+      `);
+
+    if (!fileResult.recordset[0]) {
+      await transaction.rollback();
+      return { status: "file_not_found" };
+    }
+
+    const countResult = await new sql.Request(transaction)
+      .input("submissionId", sql.Int, submissionId).query(`
+        SELECT COUNT(*) AS FileCount
+        FROM SubmissionFiles
+        WHERE SubmissionID = @submissionId
+      `);
+
+    if (countResult.recordset[0].FileCount <= 1) {
+      await transaction.rollback();
+      return { status: "last_file" };
+    }
+
+    const removed = await new sql.Request(transaction)
+      .input("submissionId", sql.Int, submissionId)
+      .input("submissionFileId", sql.Int, submissionFileId).query(`
+        DELETE FROM SubmissionFiles
+        OUTPUT DELETED.FileURL
+        WHERE SubmissionID = @submissionId
+          AND SubmissionFileID = @submissionFileId
+      `);
+    const nextFile = await new sql.Request(transaction)
+      .input("submissionId", sql.Int, submissionId).query(`
+        SELECT TOP (1) FileURL
+        FROM SubmissionFiles
+        WHERE SubmissionID = @submissionId
+        ORDER BY SubmissionFileID
+      `);
+    await new sql.Request(transaction)
+      .input("submissionId", sql.Int, submissionId)
+      .input("fileURL", sql.NVarChar(500), nextFile.recordset[0].FileURL)
+      .query(`
+        UPDATE Submissions
+        SET FileURL = @fileURL
+        WHERE SubmissionID = @submissionId
+      `);
+
+    await transaction.commit();
+    return {
+      status: "removed",
+      fileURL: removed.recordset[0].FileURL,
+    };
+  } catch (error) {
+    if (transaction._aborted !== true) {
+      await transaction.rollback();
+    }
+    throw error;
+  }
+}
+
+async function deleteStudentSubmission(submissionId, studentId) {
+  const pool = await connectDB();
+  const transaction = new sql.Transaction(pool);
+
+  await transaction.begin();
+
+  try {
+    const submissionResult = await new sql.Request(transaction)
+      .input("submissionId", sql.Int, submissionId)
+      .input("studentId", sql.Int, studentId).query(`
+        SELECT
+          s.SubmissionID,
+          s.Grade,
+          CASE
+            WHEN a.DueDate IS NULL OR a.DueDate >= SYSUTCDATETIME() THEN 1
+            ELSE 0
+          END AS CanEdit
+        FROM Submissions AS s WITH (UPDLOCK, ROWLOCK)
+        INNER JOIN Assignments AS a
+          ON a.AssignmentID = s.AssignmentID
+        WHERE s.SubmissionID = @submissionId
+          AND s.StudentID = @studentId
+      `);
+    const submission = submissionResult.recordset[0];
+
+    if (!submission) {
+      await transaction.rollback();
+      return { status: "not_found" };
+    }
+
+    if (submission.Grade != null) {
+      await transaction.rollback();
+      return { status: "graded" };
+    }
+
+    if (submission.CanEdit !== 1) {
+      await transaction.rollback();
+      return { status: "deadline_passed" };
+    }
+
+    const files = await new sql.Request(transaction)
+      .input("submissionId", sql.Int, submissionId).query(`
+        DELETE FROM SubmissionFiles
+        OUTPUT DELETED.FileURL
+        WHERE SubmissionID = @submissionId
+      `);
+    const legacyRow = await new sql.Request(transaction)
+      .input("submissionId", sql.Int, submissionId).query(`
+        DELETE FROM Submissions
+        OUTPUT DELETED.FileURL
+        WHERE SubmissionID = @submissionId
+      `);
+
+    await transaction.commit();
+    return {
+      status: "deleted",
+      fileURLs: [
+        ...new Set([
+          ...files.recordset.map((file) => file.FileURL),
+          ...legacyRow.recordset.map((row) => row.FileURL),
+        ]),
+      ].filter(Boolean),
+    };
+  } catch (error) {
+    if (transaction._aborted !== true) {
+      await transaction.rollback();
+    }
+    throw error;
+  }
 }
 
 async function gradeSubmission(submissionId, grade, feedback) {
@@ -265,6 +593,13 @@ async function getSubmissionsByStudent(studentId) {
         s.SubmittedAt,
         s.Grade,
         s.Feedback,
+        JSON_QUERY((
+          SELECT sf.SubmissionFileID, sf.FileURL
+          FROM SubmissionFiles sf
+          WHERE sf.SubmissionID = s.SubmissionID
+          ORDER BY sf.SubmissionFileID
+          FOR JSON PATH
+        )) AS Files,
         a.Title AS AssignmentTitle,
         a.Description AS AssignmentDescription,
         a.DueDate,
@@ -280,7 +615,10 @@ async function getSubmissionsByStudent(studentId) {
       ORDER BY s.SubmittedAt DESC
     `);
 
-  return result.recordset;
+  return result.recordset.map((submission) => ({
+    ...submission,
+    Files: JSON.parse(submission.Files || "[]"),
+  }));
 }
 
 module.exports = {
@@ -291,7 +629,11 @@ module.exports = {
   getAssignmentById,
   getSubmissionsByAssignment,
   getSubmissionById,
+  getSubmissionFileById,
   submitAssignment,
+  updateSubmissionFiles,
+  removeSubmissionFile,
+  deleteStudentSubmission,
   gradeSubmission,
   getSubmissionsByStudent,
 };

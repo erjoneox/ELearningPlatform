@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import Swal from "sweetalert2";
+import { FileDown } from "lucide-react";
 
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
@@ -645,16 +646,19 @@ function CourseDetails() {
     }
   }
 
-  async function downloadSubmissionFile(submission) {
+  async function downloadSubmissionFile(submission, file = null) {
     try {
       const response = await api.get(
-        `/assignments/submissions/${submission.SubmissionID}/file`,
+        file?.SubmissionFileID
+          ? `/assignments/submissions/${submission.SubmissionID}/files/${file.SubmissionFileID}`
+          : `/assignments/submissions/${submission.SubmissionID}/file`,
         { responseType: "blob" },
       );
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
       link.href = url;
       link.download =
+        file?.FileURL?.split("/").pop() ||
         submission.FileURL?.split("/").pop() ||
         `submission-${submission.SubmissionID}`;
 
@@ -670,6 +674,92 @@ function CourseDetails() {
           err.response?.data?.message ||
           "Nuk u arrit të shkarkohet puna e dorëzuar.",
       });
+    }
+  }
+
+  async function removeSubmissionFileWork(submission, file) {
+    const confirmation = await Swal.fire({
+      title: "Hiqe këtë skedar?",
+      text: "Skedari do të hiqet nga dorëzimi yt.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Hiqe skedarin",
+      cancelButtonText: "Anulo",
+      confirmButtonColor: "#dc3545",
+    });
+
+    if (!confirmation.isConfirmed) return;
+
+    setSavingSubmission((previous) => ({
+      ...previous,
+      [submission.AssignmentID]: true,
+    }));
+
+    try {
+      await api.delete(
+        `/assignments/submissions/${submission.SubmissionID}/files/${file.SubmissionFileID}`,
+      );
+      await loadMySubmissions();
+      Swal.fire({
+        icon: "success",
+        title: "Skedari u hoq",
+        text: "Skedari u hoq nga dorëzimi.",
+      });
+    } catch (err) {
+      Swal.fire({
+        icon: "error",
+        title: "Gabim",
+        text: err.response?.data?.message || "Skedari nuk mund të hiqej.",
+      });
+    } finally {
+      setSavingSubmission((previous) => ({
+        ...previous,
+        [submission.AssignmentID]: false,
+      }));
+    }
+  }
+
+  async function removeStudentSubmission(submission) {
+    const confirmation = await Swal.fire({
+      title: "Fshi dorëzimin tërësisht?",
+      text: "Të gjithë skedarët e dorëzimit do të fshihen. Ky veprim nuk mund të zhbëhet.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Fshi dorëzimin",
+      cancelButtonText: "Anulo",
+      confirmButtonColor: "#dc3545",
+    });
+
+    if (!confirmation.isConfirmed) return;
+
+    setSavingSubmission((previous) => ({
+      ...previous,
+      [submission.AssignmentID]: true,
+    }));
+
+    try {
+      await api.delete(`/assignments/submissions/${submission.SubmissionID}`);
+      setAssignmentFiles((previous) => ({
+        ...previous,
+        [submission.AssignmentID]: [],
+      }));
+      await loadMySubmissions();
+      Swal.fire({
+        icon: "success",
+        title: "Dorëzimi u fshi",
+        text: "Dorëzimi dhe skedarët e tij u fshinë.",
+      });
+    } catch (err) {
+      Swal.fire({
+        icon: "error",
+        title: "Gabim",
+        text: err.response?.data?.message || "Dorëzimi nuk mund të fshihej.",
+      });
+    } finally {
+      setSavingSubmission((previous) => ({
+        ...previous,
+        [submission.AssignmentID]: false,
+      }));
     }
   }
 
@@ -1072,21 +1162,26 @@ function CourseDetails() {
   }
 
   async function submitAssignmentWork(assignmentId) {
-    const file = assignmentFiles[assignmentId];
+    const files = assignmentFiles[assignmentId] || [];
 
-    if (!file) {
+    if (files.length < 1 || files.length > 10) {
       Swal.fire({
         icon: "warning",
-        title: "Zgjidh një skedar",
-        text: "Duhet të zgjedhësh skedarin që dëshiron ta dorëzosh.",
+        title: "Zgjidh skedarët",
+        text: "Zgjidhni nga 1 deri në 10 skedarë.",
       });
       return;
     }
 
     const allowedExtensions = [".pdf", ".doc", ".docx", ".ppt", ".pptx"];
-    const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
-
-    if (!allowedExtensions.includes(extension)) {
+    if (
+      files.some((file) => {
+        const extension = file.name
+          .slice(file.name.lastIndexOf("."))
+          .toLowerCase();
+        return !allowedExtensions.includes(extension);
+      })
+    ) {
       Swal.fire({
         icon: "warning",
         title: "Format i pambështetur",
@@ -1095,7 +1190,7 @@ function CourseDetails() {
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
+    if (files.some((file) => file.size > 10 * 1024 * 1024)) {
       Swal.fire({
         icon: "warning",
         title: "Skedar shumë i madh",
@@ -1111,21 +1206,32 @@ function CourseDetails() {
 
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      files.forEach((file) => formData.append("files", file));
+      const existingSubmission = mySubmissions.find(
+        (submission) =>
+          Number(submission.AssignmentID) === Number(assignmentId) &&
+          Number(submission.CourseID) === Number(courseId),
+      );
 
-      await api.post(`/assignments/${assignmentId}/submit`, formData);
+      if (existingSubmission) {
+        await api.put(`/assignments/${assignmentId}/submission`, formData);
+      } else {
+        await api.post(`/assignments/${assignmentId}/submit`, formData);
+      }
 
       setAssignmentFiles((previous) => ({
         ...previous,
-        [assignmentId]: null,
+        [assignmentId]: [],
       }));
 
       await Promise.all([loadAssignments(), loadMySubmissions()]);
 
       Swal.fire({
         icon: "success",
-        title: "Detyra u dorëzua",
-        text: "Skedari u dorëzua me sukses.",
+        title: existingSubmission ? "Dorëzimi u përditësua" : "Detyra u dorëzua",
+        text: existingSubmission
+          ? "Skedarët e dorëzimit u zëvendësuan me sukses."
+          : "Skedarët u dorëzuan me sukses.",
       });
     } catch (err) {
       Swal.fire({
@@ -1660,15 +1766,126 @@ function CourseDetails() {
                                   {existingSubmission.Feedback}
                                 </p>
                               )}
-                              <button
-                                type="button"
-                                className="btn btn-outline-primary btn-sm fw-semibold"
-                                onClick={() =>
-                                  downloadSubmissionFile(existingSubmission)
-                                }
-                              >
-                                Shiko punën e dorëzuar
-                              </button>
+                              <div className="d-flex flex-column align-items-start gap-2 mb-3">
+                                {(existingSubmission.Files || []).map((file) => (
+                                  <div
+                                    key={file.SubmissionFileID || file.FileURL}
+                                    className="d-flex align-items-center gap-2 flex-wrap"
+                                  >
+                                    <button
+                                      type="button"
+                                      className="btn btn-link btn-sm p-0 text-decoration-none"
+                                      onClick={() =>
+                                        downloadSubmissionFile(
+                                          existingSubmission,
+                                          file,
+                                        )
+                                      }
+                                    >
+                                      <FileDown size={16} className="me-1" />
+                                      {file.FileURL?.split("/").pop() ||
+                                        "Shiko punën e dorëzuar"}
+                                    </button>
+                                    {existingSubmission.Grade == null &&
+                                      !deadlinePassed &&
+                                      (existingSubmission.Files?.length ?? 0) >
+                                        1 &&
+                                      file.SubmissionFileID && (
+                                        <button
+                                          type="button"
+                                          className="btn btn-outline-danger btn-sm py-0"
+                                          disabled={Boolean(
+                                            savingSubmission[assignmentId],
+                                          )}
+                                          onClick={() =>
+                                            removeSubmissionFileWork(
+                                              existingSubmission,
+                                              file,
+                                            )
+                                          }
+                                        >
+                                          Hiqe
+                                        </button>
+                                      )}
+                                  </div>
+                                ))}
+                                {!existingSubmission.Files?.length &&
+                                  existingSubmission.FileURL && (
+                                    <button
+                                      type="button"
+                                      className="btn btn-link btn-sm p-0 text-decoration-none"
+                                      onClick={() =>
+                                        downloadSubmissionFile(existingSubmission)
+                                      }
+                                    >
+                                      <FileDown size={16} className="me-1" />
+                                      Shiko punën e dorëzuar
+                                    </button>
+                                  )}
+                              </div>
+                              {existingSubmission.Grade == null &&
+                                !deadlinePassed && (
+                                  <div className="border-top pt-3">
+                                    <label className="form-label small fw-semibold text-secondary">
+                                      Zëvendëso dorëzimin (deri në 10 skedarë)
+                                    </label>
+                                    <input
+                                      type="file"
+                                      multiple
+                                      className="form-control form-control-sm mb-2"
+                                      accept=".pdf,.doc,.docx,.ppt,.pptx"
+                                      onChange={(event) => {
+                                        const files = Array.from(
+                                          event.target.files || [],
+                                        );
+                                        if (files.length > 10) {
+                                          event.target.value = "";
+                                          setAssignmentFiles((previous) => ({
+                                            ...previous,
+                                            [assignmentId]: [],
+                                          }));
+                                          Swal.fire({
+                                            icon: "warning",
+                                            title: "Shumë skedarë",
+                                            text:
+                                              "Mund të ngarkohen deri në 10 skedarë.",
+                                          });
+                                          return;
+                                        }
+                                        setAssignmentFiles((previous) => ({
+                                          ...previous,
+                                          [assignmentId]: files,
+                                        }));
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      className="btn btn-outline-primary btn-sm fw-semibold"
+                                      disabled={
+                                        Boolean(savingSubmission[assignmentId])
+                                      }
+                                      onClick={() =>
+                                        submitAssignmentWork(assignmentId)
+                                      }
+                                    >
+                                      {savingSubmission[assignmentId]
+                                        ? "Duke ruajtur..."
+                                        : "Përditëso dorëzimin"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn btn-outline-danger btn-sm fw-semibold ms-2"
+                                      disabled={Boolean(
+                                        savingSubmission[assignmentId],
+                                      )}
+                                      onClick={() =>
+                                        removeStudentSubmission(existingSubmission)
+                                      }
+                                    >
+                                      Fshi dorëzimin
+                                    </button>
+                                  </div>
+                                )}
                             </div>
                           ) : deadlinePassed ? (
                             <div className="alert alert-warning border-0 shadow-sm rounded-4 mb-0 p-3 small">
@@ -1677,19 +1894,40 @@ function CourseDetails() {
                           ) : (
                             <div className="border rounded-4 p-3 bg-light">
                               <label className="form-label small fw-semibold text-secondary">
-                                Zgjidh skedarin e detyrës
+                                Zgjidh deri në 10 skedarë për detyrën
                               </label>
                               <input
                                 type="file"
+                                multiple
                                 className="form-control form-control-sm mb-3"
                                 accept=".pdf,.doc,.docx,.ppt,.pptx"
-                                onChange={(e) =>
+                                onChange={(event) => {
+                                  const files = Array.from(
+                                    event.target.files || [],
+                                  );
+                                  if (files.length > 10) {
+                                    event.target.value = "";
+                                    setAssignmentFiles((previous) => ({
+                                      ...previous,
+                                      [assignmentId]: [],
+                                    }));
+                                    Swal.fire({
+                                      icon: "warning",
+                                      title: "Shumë skedarë",
+                                      text: "Mund të ngarkohen deri në 10 skedarë.",
+                                    });
+                                    return;
+                                  }
                                   setAssignmentFiles((previous) => ({
                                     ...previous,
-                                    [assignmentId]: e.target.files?.[0] || null,
-                                  }))
-                                }
+                                    [assignmentId]: files,
+                                  }));
+                                }}
                               />
+                              <p className="small text-muted mb-3">
+                                Skedarët e lejuar: PDF, DOC, DOCX, PPT dhe PPTX;
+                                deri në 10 MB për skedar.
+                              </p>
                               <button
                                 type="button"
                                 className="btn text-white btn-sm fw-semibold px-3 py-2"
@@ -1760,17 +1998,54 @@ function CourseDetails() {
                                                 submission.SubmittedAt,
                                               )}
                                             </p>
-                                            <button
-                                              type="button"
-                                              className="btn btn-link btn-sm p-0 mb-3 text-decoration-none fw-semibold"
-                                              onClick={() =>
-                                                downloadSubmissionFile(
-                                                  submission,
-                                                )
-                                              }
-                                            >
-                                              📄 Shkarko punën e studentit
-                                            </button>
+                                            <div className="d-flex flex-column align-items-start gap-1 mb-3">
+                                              {(submission.Files || []).map(
+                                                (file) => (
+                                                  <button
+                                                    key={
+                                                      file.SubmissionFileID ||
+                                                      file.FileURL
+                                                    }
+                                                    type="button"
+                                                    className="btn btn-link btn-sm p-0 text-decoration-none fw-semibold"
+                                                    onClick={() =>
+                                                      downloadSubmissionFile(
+                                                        submission,
+                                                        file,
+                                                      )
+                                                    }
+                                                  >
+                                                    <FileDown
+                                                      size={16}
+                                                      className="me-1"
+                                                    />
+                                                    Shkarko{" "}
+                                                    {file.FileURL
+                                                      ?.split("/")
+                                                      .pop() ||
+                                                      "punën e studentit"}
+                                                  </button>
+                                                ),
+                                              )}
+                                              {!submission.Files?.length &&
+                                                submission.FileURL && (
+                                                  <button
+                                                    type="button"
+                                                    className="btn btn-link btn-sm p-0 text-decoration-none fw-semibold"
+                                                    onClick={() =>
+                                                      downloadSubmissionFile(
+                                                        submission,
+                                                      )
+                                                    }
+                                                  >
+                                                    <FileDown
+                                                      size={16}
+                                                      className="me-1"
+                                                    />
+                                                    Shkarko punën e studentit
+                                                  </button>
+                                                )}
+                                            </div>
 
                                             <div className="row g-2">
                                               <div className="col-md-3">
