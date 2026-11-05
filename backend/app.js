@@ -2,9 +2,8 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
-const path = require("path");
-
-const { connectDB } = require("./config/db");
+const helmet = require("helmet");
+const multer = require("multer");
 
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
@@ -19,11 +18,30 @@ const categoryRoutes = require("./routes/categoryRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const allowedOrigins = (process.env.CLIENT_URL || "http://localhost:5173")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(helmet());
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
 
+      const error = new Error("Origin is not allowed.");
+      error.status = 403;
+      return callback(error);
+    },
+  }),
+);
+
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+
+// API routes
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/courses", courseRoutes);
@@ -35,48 +53,56 @@ app.use("/api/progress", progressRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/categories", categoryRoutes);
 
-app.use(
-  "/uploads/materials",
-  express.static(path.join(__dirname, "uploads/materials")),
-);
-
+// Public API status
 app.get("/", (req, res) => {
   res.json({
-    message: "ELearning Platform API is running",
+    message: "EduFlow API is running",
   });
 });
 
 app.get("/api/health", (req, res) => {
-  res.json({
+  res.status(200).json({
     status: "OK",
     message: "Backend is working correctly",
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    message: "API endpoint not found.",
+  });
 });
 
-app.get("/api/db-test", async (req, res) => {
-  try {
-    const pool = await connectDB();
+// Global error handler
+app.use((error, req, res, next) => {
+  console.error("Application error:", error.message);
 
-    const result = await pool.request().query(`
-            SELECT DB_NAME() AS DatabaseName,
-                   COUNT(*) AS TotalUsers
-            FROM Users
-        `);
-
-    res.json({
-      message: "Database connection successful",
-      database: result.recordset[0].DatabaseName,
-      totalUsers: result.recordset[0].TotalUsers,
-    });
-  } catch (error) {
-    console.error("Database error:", error.message);
-
-    res.status(500).json({
-      message: "Database connection failed",
-    });
+  if (res.headersSent) {
+    return next(error);
   }
+
+  let status = error.status || 500;
+  let message = status < 500 ? error.message : "An unexpected server error occurred.";
+
+  if (error instanceof multer.MulterError) {
+    status = error.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+    message =
+      error.code === "LIMIT_FILE_SIZE"
+        ? "Each uploaded file must be 10 MB or smaller."
+        : "The uploaded files exceed the allowed limits.";
+  } else if (error.type === "entity.too.large") {
+    status = 413;
+    message = "Request body is too large.";
+  } else if (error.type === "entity.parse.failed") {
+    status = 400;
+    message = "Request body contains invalid JSON.";
+  }
+
+  res.status(status).json({ message });
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`EduFlow server is running on http://localhost:${PORT}`);
 });
